@@ -1,10 +1,11 @@
 using System.Runtime.InteropServices;
+using System.Threading;
 using Murmur.Abstractions;
 
 namespace Murmur.Platform.Windows;
 
 /// <summary>
-/// Types text into whatever application has focus.
+/// Inserts text into whatever application has focus.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,22 +16,33 @@ namespace Murmur.Platform.Windows;
 /// own sample code says plainly: "text input must be simulated."
 /// </para>
 /// <para>
-/// So <c>SendInput</c> is the primary path, not a fallback. Short text is typed as Unicode
-/// packets, which leaves the clipboard untouched. Longer text goes via the clipboard, because
-/// some terminals and Electron apps drop characters when thousands of synthetic keystrokes
-/// arrive back to back.
+/// <b>Paste is the primary path, not typing.</b> Typing leaves the clipboard alone, but it is
+/// per-character: <c>SendInput</c> drops or duplicates synthetic keystrokes in Electron-family
+/// apps (Discord, Slack, VS Code) and can fail partway through a string. A paste is a single
+/// <c>Ctrl+V</c> — the target receives the whole text or none of it, so interleaved or doubled
+/// characters are structurally impossible. The clipboard is restored afterwards, so the only
+/// cost is a brief, invisible swap. Typing remains as the fallback for when the clipboard is
+/// locked by another application.
 /// </para>
 /// </remarks>
-public sealed class SendInputTextInjector : ITextInjector
+public sealed class SendInputTextInjector : ITextInjector, IDisposable
 {
-    /// <summary>Above this many characters, paste instead of typing.</summary>
-    private const int PasteThreshold = 200;
-
     /// <summary>Characters per <c>SendInput</c> call when typing.</summary>
     private const int ChunkSize = 40;
 
     /// <summary>Pause between chunks, so slower targets keep up.</summary>
     private static readonly TimeSpan ChunkGap = TimeSpan.FromMilliseconds(4);
+
+    /// <summary>How many times to retry opening the clipboard before giving up.</summary>
+    /// <remarks>
+    /// <c>OpenClipboard</c> fails while another application holds the clipboard open. That
+    /// window is almost always momentary (a copy is a few milliseconds), so a short retry
+    /// turns a flaky miss into a reliable paste.
+    /// </remarks>
+    private const int ClipboardRetries = 3;
+
+    /// <summary>Pause between clipboard retries.</summary>
+    private static readonly TimeSpan ClipboardRetryGap = TimeSpan.FromMilliseconds(40);
 
     /// <summary>
     /// Time for the target to observe the new clipboard before Ctrl+V arrives. Without it, a
@@ -133,14 +145,22 @@ public sealed class SendInputTextInjector : ITextInjector
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalUnlock(IntPtr memory);
 
-    [DllImport("kernel32.dll")]
-    private static extern UIntPtr GlobalSize(IntPtr memory);
-
     private const uint CF_UNICODETEXT = 13;
     private const uint GMEM_MOVEABLE = 0x0002;
     private const uint GMEM_ZEROINIT = 0x0040;
 
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
+
+    /// <summary>
+    /// Serializes injections so two calls can never interleave.
+    /// </summary>
+    /// <remarks>
+    /// The engine's state machine already refuses a second dictation while one is being
+    /// processed, but injection is a shared resource and the cost of defending it twice is a
+    /// few lines. If two calls ever did race — a future caller, a button path, a hotkey edge —
+    /// the second waits for the first to finish rather than typing into the middle of it.
+    /// </remarks>
+    private readonly SemaphoreSlim _injectionGate = new(1, 1);
 
     /// <summary>Called to place text on the clipboard and paste it.</summary>
     /// <remarks>
@@ -155,25 +175,43 @@ public sealed class SendInputTextInjector : ITextInjector
     {
         if (string.IsNullOrEmpty(text)) return true;
 
-        // Newlines sent as Unicode packets do not reliably produce a new line — many controls
-        // want a real VK_RETURN. Long text goes to the clipboard anyway, which handles them.
-        var hasNewlines = text.Contains('\n', StringComparison.Ordinal);
-
-        if (text.Length <= PasteThreshold && !hasNewlines)
+        await _injectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            // SendInput is subject to UIPI: injecting into an elevated window from a normal
-            // process can return success and do nothing, and Electron-family apps sometimes
-            // drop Unicode keystrokes. When it visibly fails, fall back to the clipboard —
-            // paste works in every window the user can actually see.
-            if (TypeUnicode(text)) return true;
+            return await InjectCoreAsync(text, cancellationToken).ConfigureAwait(false);
         }
+        finally
+        {
+            _injectionGate.Release();
+        }
+    }
 
+    /// <summary>Runs one injection, under the gate.</summary>
+    /// <remarks>
+    /// Order matters and is load-bearing: paste first, type only when the clipboard is
+    /// unusable. Pasting over a partially typed string is exactly how a dictation app produces
+    /// the doubled, interleaved garbage that makes it look broken — the type path must never
+    /// run after a paste, and a paste must never run after a partial type.
+    /// </remarks>
+    private async ValueTask<bool> InjectCoreAsync(string text, CancellationToken cancellationToken)
+    {
+        // Electron-family apps drop synthetic Unicode keystrokes and some controls duplicate
+        // them; a paste is atomic and works in every window the user can actually see.
         if (ClipboardPaste is not null)
         {
-            return await ClipboardPaste(text, cancellationToken).ConfigureAwait(false);
+            if (await ClipboardPaste(text, cancellationToken).ConfigureAwait(false)) return true;
+
+            // The app-supplied paste failed; fall through to the self-contained path.
         }
 
-        return PasteViaClipboard(text);
+        if (PasteViaClipboard(text)) return true;
+
+        // Last resort: the clipboard is locked by another application. Type instead. If a
+        // chunk only partially sends, stop — the partial text is already in the target and
+        // retrying over it would recreate the interleaving this ordering exists to prevent.
+        return text.Contains('\n', StringComparison.Ordinal)
+            ? TypeWithNewlines(text)
+            : TypeUnicode(text);
     }
 
     /// <summary>Types arbitrary text as Unicode packets.</summary>
@@ -188,7 +226,9 @@ public sealed class SendInputTextInjector : ITextInjector
     /// <b>Failure here is silent.</b> <c>SendInput</c> is subject to UIPI, and Microsoft
     /// documents that when it is blocked "neither GetLastError nor the return value will
     /// indicate the failure was caused by UIPI blocking." Injecting into an elevated window
-    /// from a normal process can return success and do nothing.
+    /// from a normal process can return success and do nothing. When a chunk only partially
+    /// sends, the caller must not paste or retype over it — the partial text is already in
+    /// the target, and layering more text on top produces interleaved garbage.
     /// </para>
     /// </remarks>
     private static bool TypeUnicode(string text)
@@ -217,7 +257,7 @@ public sealed class SendInputTextInjector : ITextInjector
 
     /// <summary>
     /// Puts <paramref name="text"/> on the clipboard, presses Ctrl+V, and restores whatever
-    /// was there before. The fallback that works everywhere SendInput cannot.
+    /// was there before. The primary injection path, because it is atomic.
     /// </summary>
     /// <remarks>
     /// The clipboard is opened, written, closed, and the paste issued from the calling
@@ -228,7 +268,7 @@ public sealed class SendInputTextInjector : ITextInjector
     private static bool PasteViaClipboard(string text)
     {
         string? previous = ReadClipboardText();
-        if (!SetClipboardText(text)) return false;
+        if (!SetClipboardTextWithRetry(text)) return false;
 
         if (!PressCtrlV())
         {
@@ -241,6 +281,18 @@ public sealed class SendInputTextInjector : ITextInjector
         Thread.Sleep(PasteSettle);
         if (previous is not null) SetClipboardText(previous);
         return true;
+    }
+
+    /// <summary>Sets the clipboard, retrying briefly while another app holds it open.</summary>
+    private static bool SetClipboardTextWithRetry(string text)
+    {
+        for (var attempt = 0; attempt < ClipboardRetries; attempt++)
+        {
+            if (SetClipboardText(text)) return true;
+            Thread.Sleep(ClipboardRetryGap * (attempt + 1));
+        }
+
+        return false;
     }
 
     /// <summary>Reads the clipboard as UTF-16 text, or null if none.</summary>
@@ -257,9 +309,10 @@ public sealed class SendInputTextInjector : ITextInjector
 
             try
             {
-                var size = (int)GlobalSize(handle);
-                if (size <= 0) return null;
-                return Marshal.PtrToStringUni(pointer, size / 2);
+                // NUL-terminated, not sized: GlobalSize returns the allocation size, which
+                // the heap rounds up — reading size / 2 chars would swallow garbage after
+                // the terminator.
+                return Marshal.PtrToStringUni(pointer);
             }
             finally
             {
@@ -402,4 +455,7 @@ public sealed class SendInputTextInjector : ITextInjector
         0x2D or 0x2E or 0x24 or 0x23 or   // insert, delete, home, end
         0x21 or 0x22 or                   // page up/down
         0x25 or 0x26 or 0x27 or 0x28;     // arrows
+
+    /// <summary>Releases the injection gate.</summary>
+    public void Dispose() => _injectionGate.Dispose();
 }

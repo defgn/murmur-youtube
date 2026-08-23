@@ -25,10 +25,11 @@ public partial class App : Application
             _main = new MainWindow(_composition);
             desktop.MainWindow = _main;
 
-            // Closing the window leaves Murmur running in the tray — the hotkey still works,
-            // which is the whole point of a dictation app. Quit is explicit, from the tray
-            // menu or the app menu.
-            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            // Closing the window exits the app, tray icon included. A dictation app could
+            // justify staying resident, but a surprise process in Task Manager after clicking
+            // the close button is worse than losing the tray. Quit also exits, from the tray
+            // menu or the app menu — every road out of the app actually leaves.
+            desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
 
             // Disposing tears down the keyboard hook and releases the audio device. Leaving
             // a low-level hook installed after exit is the kind of thing that makes a

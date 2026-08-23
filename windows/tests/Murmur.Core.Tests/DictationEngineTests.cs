@@ -22,7 +22,7 @@ public sealed class DictationEngineTests
         IAudioCapture capture,
         FakeHotkeySource hotkey,
         FakeTranscriber transcriber,
-        RecordingTextInjector injector,
+        ITextInjector injector,
         params DictionaryEntry[] dictionary) =>
         new(capture, hotkey, transcriber, injector, () => dictionary, new FakeClock());
 
@@ -144,6 +144,32 @@ public sealed class DictationEngineTests
         await DictateAsync(hotkey, engine);
         engine.State.ShouldBe(DictationState.Idle);
         engine.Level.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Failed_injection_keeps_the_transcript_and_notifies()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("um, actually the numbers look good");
+        var injector = new FailingTextInjector();
+        var notices = new List<string>();
+        var completed = new List<DictationResult>();
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector);
+        engine.Notice += (_, message) => notices.Add(message);
+        engine.Completed += (_, result) => completed.Add(result);
+
+        await DictateAsync(hotkey, engine);
+
+        // The transcript is recorded *before* injection is attempted, so a failed injection
+        // never costs the text — this is the contract behind "the text is in the
+        // transcriptions list" when typing into an elevated or hostile window fails.
+        completed.ShouldHaveSingleItem();
+        completed[0].Text.ShouldBe("the numbers look good");
+        injector.Injected.ShouldHaveSingleItem();
+        notices.ShouldContain(m => m.Contains("could not type", StringComparison.OrdinalIgnoreCase));
+        engine.State.ShouldBe(DictationState.Idle);
     }
 
     /// <summary>

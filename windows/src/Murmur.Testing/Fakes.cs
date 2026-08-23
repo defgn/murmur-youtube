@@ -182,6 +182,25 @@ public sealed class RecordingTextInjector : ITextInjector
     }
 }
 
+/// <summary>Always fails to inject, recording what it was asked to type.</summary>
+/// <remarks>
+/// Pins the ordering contract the user depends on: the transcript must be recorded before
+/// injection is attempted, so a failed injection never costs them the text — it only costs
+/// the automatic typing.
+/// </remarks>
+public sealed class FailingTextInjector : ITextInjector
+{
+    /// <summary>Everything injection was asked to type, in order.</summary>
+    public List<string> Injected { get; } = [];
+
+    /// <inheritdoc />
+    public ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken)
+    {
+        Injected.Add(text);
+        return ValueTask.FromResult(false);
+    }
+}
+
 /// <summary>A clock you advance by hand.</summary>
 public sealed class FakeClock : IClock
 {
