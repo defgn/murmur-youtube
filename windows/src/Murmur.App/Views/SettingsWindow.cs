@@ -47,7 +47,7 @@ public sealed class SettingsWindow : Window
         _composition = composition;
         _settings = composition.Settings;
 
-        Title = "Murmur Settings";
+        Title = "Woffle Settings";
         Width = 540;
         SizeToContent = SizeToContent.Height;
         CanResize = false;

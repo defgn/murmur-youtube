@@ -55,7 +55,7 @@ public sealed class TranscriptStore
     /// <summary>The default location.</summary>
     public static string DefaultPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Murmur", "transcripts.jsonl");
+        "Woffle", "transcripts.jsonl");
 
     /// <summary>Every record, newest first.</summary>
     public IReadOnlyList<TranscriptRecord> Records => _records;

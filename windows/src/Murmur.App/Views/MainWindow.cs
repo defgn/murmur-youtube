@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using Murmur.App.Controls;
 using Murmur.App.Design;
@@ -49,12 +50,17 @@ public sealed class MainWindow : Window
     {
         _composition = composition;
 
-        Title = "Murmur";
+        Title = "Woffle";
         MinWidth = 720;
         MinHeight = 520;
         Width = 880;
         Height = 640;
         Background = Tokens.Brushes.Chassis;
+
+        // The window icon is the same mark as the tray — resolved from the assembly name
+        // so it keeps working however the executable is named.
+        Icon = new WindowIcon(AssetLoader.Open(new Uri(
+            "avares://" + typeof(MainWindow).Assembly.GetName().Name + "/Assets/tray.ico")));
 
         _recordKey = new TransportKey { Content = "RECORD" };
         _recordKey.Click += (_, _) => ToggleRecording();

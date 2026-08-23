@@ -6,6 +6,9 @@
          over WPF. Windows-only code lives in Murmur.Platform.Windows. -->
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Murmur.App</RootNamespace>
+    <!-- The executable and process are Woffle; the namespace stays Murmur.* for now to
+         keep this fork diffable against upstream. -->
+    <AssemblyName>Woffle</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
