@@ -1,6 +1,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -22,6 +23,8 @@ public sealed class TranscriptionsView : UserControl
     private readonly TextBox _search;
     private readonly StackPanel _list;
     private readonly TextBlock _count;
+    private Border? _liveCard;
+    private TextBlock _liveText = null!;
 
     /// <summary>Builds the view over <paramref name="store"/>.</summary>
     public TranscriptionsView(TranscriptStore store)
@@ -69,6 +72,76 @@ public sealed class TranscriptionsView : UserControl
         }
 
         foreach (var record in records) _list.Children.Add(BuildRow(record));
+    }
+
+    /// <summary>
+    /// Shows the live preview card with the latest partial transcript. While the card is up
+    /// the list shows nothing else — the recording has not produced a finished transcript yet.
+    /// </summary>
+    public void ShowLive(string text)
+    {
+        _liveCard ??= BuildLiveCard();
+        _liveText.Text = text;
+
+        _list.Children.Clear();
+        _list.Children.Add(_liveCard);
+    }
+
+    /// <summary>Removes the live preview card; the store now holds the finished transcript.</summary>
+    public void ClearLive()
+    {
+        if (_liveCard is null || !_list.Children.Contains(_liveCard)) return;
+        Refresh();
+    }
+
+    /// <summary>The card shown while the key is held: a red lamp and what the engine hears.</summary>
+    private Border BuildLiveCard()
+    {
+        var lamp = new Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = Tokens.Brushes.Record,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var header = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children =
+            {
+                lamp,
+                Panels.Caption("LISTENING"),
+            },
+        };
+
+        _liveText = new TextBlock
+        {
+            Text = string.Empty,
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.BodyLarge,
+            Foreground = Tokens.Brushes.Ink,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 1.5,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var body = new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children = { header, _liveText },
+        };
+
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0x24, 0x7A, 0x1F, 0x2E)),
+            CornerRadius = new CornerRadius(Tokens.Radius.Panel),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xE1, 0x1D, 0x48)),
+            BorderThickness = new Thickness(Tokens.Border.Hairline),
+            Padding = new Thickness(Tokens.Space.Roomy),
+            Child = body,
+        };
     }
 
     private Border BuildRow(TranscriptRecord record)

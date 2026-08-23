@@ -49,10 +49,20 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly IClock _clock;
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
     private readonly bool _removeFillers;
+    private readonly TimeSpan _partialInterval;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _recording;
     private List<float>? _buffer;
+
+    /// <summary>Serializes the recognizer: partial previews and the final pass share it,
+    /// and sherpa-onnx recognizers are not thread-safe.</summary>
+    private readonly SemaphoreSlim _transcribeGate = new(1, 1);
+
+    /// <summary>Guards <see cref="_buffer"/>: the capture loop writes it while the
+    /// partial-transcript loop snapshots it.</summary>
+    private readonly object _bufferLock = new();
+
     private DateTimeOffset _startedAt;
 
     /// <summary>Current state.</summary>
@@ -73,6 +83,13 @@ public sealed class DictationEngine : IAsyncDisposable
     /// </summary>
     public event EventHandler<string>? Notice;
 
+    /// <summary>
+    /// Raised with the latest partial transcript while recording, so the panel can show
+    /// what is being heard before the key is released. Partials are never injected — the
+    /// full transcript on release is the one that lands in the focused app.
+    /// </summary>
+    public event EventHandler<string>? PartialTranscript;
+
     /// <summary>Wires the engine to its platform implementations.</summary>
     /// <param name="capture">Microphone source.</param>
     /// <param name="hotkey">Push-to-talk source.</param>
@@ -86,6 +103,10 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <param name="removeFillers">
     /// Whether to strip spoken disfluencies ("um", "er", "uh") from transcripts. Default true.
     /// </param>
+    /// <param name="partialInterval">
+    /// How often the live preview refreshes while recording. Defaults to two seconds; tests
+    /// pass something shorter.
+    /// </param>
     public DictationEngine(
         IAudioCapture capture,
         IHotkeySource hotkey,
@@ -93,7 +114,8 @@ public sealed class DictationEngine : IAsyncDisposable
         ITextInjector injector,
         Func<IReadOnlyList<DictionaryEntry>> dictionary,
         IClock? clock = null,
-        bool removeFillers = true)
+        bool removeFillers = true,
+        TimeSpan? partialInterval = null)
     {
         _capture = capture;
         _hotkey = hotkey;
@@ -102,6 +124,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _dictionary = dictionary;
         _clock = clock ?? SystemClock.Instance;
         _removeFillers = removeFillers;
+        _partialInterval = partialInterval ?? TimeSpan.FromSeconds(2);
 
         _hotkey.Pressed += OnPressed;
         _hotkey.Released += OnReleased;
@@ -157,6 +180,9 @@ public sealed class DictationEngine : IAsyncDisposable
 
         try
         {
+            // The live preview runs alongside the capture loop and dies with the recording.
+            _ = RunPartialLoopAsync(_recording!.Token);
+
             await foreach (var chunk in _capture.CaptureAsync(_recording!.Token).ConfigureAwait(false))
             {
                 // Stop consuming the moment recording ends. Cancellation is cooperative, so
@@ -167,7 +193,11 @@ public sealed class DictationEngine : IAsyncDisposable
 
                 // Copied, not referenced: capture implementations are entitled to reuse
                 // their buffer the moment this returns.
-                _buffer?.AddRange(chunk.Samples.Span);
+                lock (_bufferLock)
+                {
+                    _buffer?.AddRange(chunk.Samples.Span);
+                }
+
                 Level = chunk.Rms();
                 Changed?.Invoke(this, EventArgs.Empty);
             }
@@ -195,8 +225,11 @@ public sealed class DictationEngine : IAsyncDisposable
             if (State != DictationState.Recording) return;
 
             await _recording!.CancelAsync().ConfigureAwait(false);
-            samples = _buffer;
-            _buffer = null;
+            lock (_bufferLock)
+            {
+                samples = _buffer;
+                _buffer = null;
+            }
             Level = 0;
             SetState(DictationState.Transcribing);
         }
@@ -254,13 +287,23 @@ public sealed class DictationEngine : IAsyncDisposable
         var pieces = AudioSegmenter.Split(audio);
         var transcripts = new List<string>(pieces.Count);
 
-        foreach (var piece in pieces)
+        // The recognizer is shared with the (now cancelled) partial loop; hold the gate so
+        // an in-flight preview can never run concurrently with the real transcription.
+        await _transcribeGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            var text = await _transcriber
-                .TranscribeAsync(piece, bias, CancellationToken.None)
-                .ConfigureAwait(false);
+            foreach (var piece in pieces)
+            {
+                var text = await _transcriber
+                    .TranscribeAsync(piece, bias, CancellationToken.None)
+                    .ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(text)) transcripts.Add(text.Trim());
+                if (!string.IsNullOrWhiteSpace(text)) transcripts.Add(text.Trim());
+            }
+        }
+        finally
+        {
+            _transcribeGate.Release();
         }
 
         var raw = string.Join(' ', transcripts);
@@ -295,6 +338,83 @@ public sealed class DictationEngine : IAsyncDisposable
               + "The text is in the transcriptions list.");
     }
 
+    /// <summary>
+    /// Live preview loop: while recording, periodically transcribe what has been captured
+    /// so far and raise <see cref="PartialTranscript"/>. Dies with the recording token.
+    /// </summary>
+    private async Task RunPartialLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(_partialInterval);
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+            {
+                // Partials never trigger the model load — the first dictation still pays
+                // the one-time ~2s load on release, exactly as before.
+                if (!_transcriber.IsReady) continue;
+
+                await PublishPartialAsync(token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal: the key was released.
+        }
+        catch (Exception e)
+        {
+            // A failing preview must never take the recording down with it.
+            Notice?.Invoke(this, $"Live preview stopped: {e.Message}");
+        }
+    }
+
+    /// <summary>Transcribes the audio captured so far and raises it as a partial.</summary>
+    private async Task PublishPartialAsync(CancellationToken token)
+    {
+        List<float> snapshot;
+        lock (_bufferLock)
+        {
+            if (_buffer is null || _buffer.Count < AudioChunk.SampleRate / 2) return;
+            snapshot = new List<float>(_buffer);
+        }
+
+        var entries = _dictionary();
+        var bias = DictionaryCorrector.BiasPhrases(entries);
+
+        // The same segmentation as the final pass, so a long recording does not hand the
+        // recognizer a clip it cannot digest.
+        var pieces = AudioSegmenter.Split(new ReadOnlyMemory<float>(snapshot.ToArray()));
+
+        await _transcribeGate.WaitAsync(token).ConfigureAwait(false);
+        string raw;
+        try
+        {
+            var texts = new List<string>(pieces.Count);
+            foreach (var piece in pieces)
+            {
+                var text = await _transcriber
+                    .TranscribeAsync(piece, bias, token)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(text)) texts.Add(text.Trim());
+            }
+
+            raw = string.Join(' ', texts);
+        }
+        finally
+        {
+            _transcribeGate.Release();
+        }
+
+        if (string.IsNullOrWhiteSpace(raw)) return;
+
+        if (_removeFillers)
+        {
+            raw = DisfluencyCleaner.Clean(raw);
+            if (string.IsNullOrWhiteSpace(raw)) return;
+        }
+
+        PartialTranscript?.Invoke(this, new DictionaryCorrector(entries).Apply(raw).Text);
+    }
+
     private void SetState(DictationState state)
     {
         State = state;
@@ -316,6 +436,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
         await _capture.DisposeAsync().ConfigureAwait(false);
         await _transcriber.DisposeAsync().ConfigureAwait(false);
+        _transcribeGate.Dispose();
         _gate.Dispose();
     }
 }

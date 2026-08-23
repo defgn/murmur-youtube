@@ -73,8 +73,8 @@ public sealed class MainWindowTests
         var window = new MainWindow();
         window.Show();
 
-        window.MinWidth.ShouldBe(720);
-        window.MinHeight.ShouldBe(520);
+        window.MinWidth.ShouldBe(760);
+        window.MinHeight.ShouldBe(560);
     }
 }
 

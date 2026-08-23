@@ -265,7 +265,7 @@ public static class Tokens
         public const double Body = 15;
 
         /// <summary>Slightly larger body text, for the transcript cards.</summary>
-        public const double BodyLarge = 15.5;
+        public const double BodyLarge = 16;
 
         /// <summary>Section titles.</summary>
         public const double Title = 19;

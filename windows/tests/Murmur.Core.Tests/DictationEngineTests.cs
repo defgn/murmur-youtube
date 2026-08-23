@@ -24,7 +24,17 @@ public sealed class DictationEngineTests
         FakeTranscriber transcriber,
         ITextInjector injector,
         params DictionaryEntry[] dictionary) =>
-        new(capture, hotkey, transcriber, injector, () => dictionary, new FakeClock());
+        Build(capture, hotkey, transcriber, injector, partialInterval: null, dictionary);
+
+    private static DictationEngine Build(
+        IAudioCapture capture,
+        FakeHotkeySource hotkey,
+        FakeTranscriber transcriber,
+        ITextInjector injector,
+        TimeSpan? partialInterval,
+        params DictionaryEntry[] dictionary) =>
+        new(capture, hotkey, transcriber, injector, () => dictionary, new FakeClock(),
+            removeFillers: true, partialInterval: partialInterval);
 
     /// <summary>Presses, waits for capture to drain, then releases.</summary>
     private static async Task DictateAsync(FakeHotkeySource hotkey, DictationEngine engine)
@@ -170,6 +180,61 @@ public sealed class DictationEngineTests
         injector.Injected.ShouldHaveSingleItem();
         notices.ShouldContain(m => m.Contains("could not type", StringComparison.OrdinalIgnoreCase));
         engine.State.ShouldBe(DictationState.Idle);
+    }
+
+    [Fact]
+    public async Task Live_partials_stream_while_recording_and_never_inject()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello world");
+        var injector = new RecordingTextInjector();
+        var partials = new List<string>();
+
+        // Pre-load so the first partial tick is allowed; the engine deliberately does not
+        // trigger the model load from the preview loop.
+        await transcriber.LoadAsync(CancellationToken.None);
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(3.0), hotkey, transcriber, injector,
+            partialInterval: TimeSpan.FromMilliseconds(100));
+        engine.PartialTranscript += (_, text) => partials.Add(text);
+
+        hotkey.Press();
+        // ~0.5s with a 100ms preview interval: several partial ticks should have run.
+        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(10);
+        hotkey.Release();
+        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+
+        partials.ShouldNotBeEmpty("the preview should transcribe while the key is held");
+        partials.ShouldAllBe(t => t == "hello world");
+
+        // The final transcript still lands exactly once, and the partials never did.
+        injector.Injected.ShouldHaveSingleItem();
+        injector.Injected[0].ShouldBe("hello world");
+    }
+
+    [Fact]
+    public async Task Live_partials_are_cleaned_like_the_final_transcript()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("um, actually hello there");
+        var injector = new RecordingTextInjector();
+        var partials = new List<string>();
+
+        await transcriber.LoadAsync(CancellationToken.None);
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(3.0), hotkey, transcriber, injector,
+            partialInterval: TimeSpan.FromMilliseconds(100));
+        engine.PartialTranscript += (_, text) => partials.Add(text);
+
+        hotkey.Press();
+        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(10);
+        hotkey.Release();
+        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+
+        partials.ShouldNotBeEmpty();
+        partials.ShouldAllBe(t => t == "hello there");
     }
 
     /// <summary>

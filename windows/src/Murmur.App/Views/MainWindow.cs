@@ -47,6 +47,7 @@ public sealed class MainWindow : Window
     private Control? _dictionaryView;
     private bool _heroPressed;
     private bool _recordingVisual;
+    private bool _wasRecordingVisual;
 
     /// <summary>Builds a window with no engine behind it. Used by headless tests.</summary>
     public MainWindow() : this(null) { }
@@ -57,10 +58,10 @@ public sealed class MainWindow : Window
         _composition = composition;
 
         Title = "Woffle";
-        MinWidth = 720;
-        MinHeight = 520;
-        Width = 880;
-        Height = 640;
+        MinWidth = 760;
+        MinHeight = 560;
+        Width = 980;
+        Height = 720;
         Background = Tokens.Brushes.ChassisGradient;
 
         // The window icon is the same mark as the tray — resolved from the assembly name
@@ -138,6 +139,12 @@ public sealed class MainWindow : Window
                     _noticeTimer.Stop();
                     _noticeTimer.Start();
                 });
+
+            // Live preview text while the key is held.
+            _composition.Engine.PartialTranscript += (_, text) =>
+                Dispatcher.UIThread.Post(() =>
+                    (_transcriptionsView as TranscriptionsView)?.ShowLive(text));
+
             _composition.Engine.Start();
         }
     }
@@ -270,8 +277,8 @@ public sealed class MainWindow : Window
         var hero = new StackPanel
         {
             HorizontalAlignment = HorizontalAlignment.Center,
-            Spacing = Tokens.Space.Roomy,
-            Margin = new Thickness(0, Tokens.Space.Wide, 0, Tokens.Space.Roomy),
+            Spacing = Tokens.Space.Snug,
+            Margin = new Thickness(0, Tokens.Space.Roomy, 0, Tokens.Space.Base),
         };
         hero.Children.Add(_heroPill);
         hero.Children.Add(_subLine);
@@ -509,6 +516,18 @@ public sealed class MainWindow : Window
             ? IsRecording
             : engine.State != DictationState.Idle;
 
+        // Live preview card: show it the moment recording starts (the first partial lands
+        // ~2s later), drop it when the finished transcript is on its way.
+        if (recording && !_wasRecordingVisual)
+        {
+            (_transcriptionsView as TranscriptionsView)?.ShowLive(string.Empty);
+        }
+        else if (!recording && _wasRecordingVisual)
+        {
+            (_transcriptionsView as TranscriptionsView)?.ClearLive();
+        }
+
+        _wasRecordingVisual = recording;
         _heroLabel.Text = recording ? "Listening…" : "Hold to dictate";
         _recordingVisual = recording;
         UpdatePillBrush();
