@@ -344,6 +344,10 @@ public sealed class SettingsWindow : Window
             Margin = new Thickness(0, Tokens.Space.Tight, 0, Tokens.Space.Tight),
         };
 
+        // Docked first; the LAST child (text) fills the remaining space.
+        DockPanel.SetDock(toggle, Dock.Right);
+        row.Children.Add(toggle);
+
         var text = new TextBlock
         {
             Text = label,
@@ -354,9 +358,6 @@ public sealed class SettingsWindow : Window
             TextWrapping = TextWrapping.Wrap,
         };
         row.Children.Add(text);
-
-        DockPanel.SetDock(toggle, Dock.Right);
-        row.Children.Add(toggle);
 
         toggle.IsCheckedChanged += (_, _) => onChange(toggle.IsChecked ?? false);
         return row;

@@ -255,9 +255,6 @@ public sealed class MainWindow : Window
         };
         settings.Click += (_, _) => ShowSettings();
 
-        var header = new DockPanel();
-        header.Children.Add(brand);
-
         var right = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -265,8 +262,15 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Children = { statusChip, settings },
         };
+
+        var header = new DockPanel();
+
+        // Docked children come first; the LAST child fills the remaining space. Adding the
+        // right stack after the brand would make IT fill — the chip and gear would sit next
+        // to the logo instead of in the top-right corner.
         DockPanel.SetDock(right, Dock.Right);
         header.Children.Add(right);
+        header.Children.Add(brand);
 
         return header;
     }

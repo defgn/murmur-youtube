@@ -188,8 +188,11 @@ public sealed class TranscriptionsView : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Children = { copy, delete },
         };
+
+        // Docked first; the LAST child (meta) fills the remaining space.
         DockPanel.SetDock(actions, Dock.Right);
         header.Children.Add(actions);
+        header.Children.Add(meta);
 
         var body = new StackPanel
         {
