@@ -39,6 +39,18 @@ public sealed record SettingsData
 
     /// <summary>Whether to keep a transcript history.</summary>
     public bool KeepHistory { get; init; } = true;
+
+    /// <summary>
+    /// What the window close button does. Null = the user has not decided yet and the first
+    /// close asks; true = hide to the notification area and keep dictating; false = quit.
+    /// </summary>
+    public bool? CloseToTray { get; init; }
+
+    /// <summary>
+    /// Whether to unload the speech model after a period of no dictation. An idle Woffle
+    /// should not be holding 660 MB; the next dictation pays a ~2s reload.
+    /// </summary>
+    public bool UnloadWhenIdle { get; init; } = true;
 }
 
 /// <summary>Settings, persisted as JSON.</summary>

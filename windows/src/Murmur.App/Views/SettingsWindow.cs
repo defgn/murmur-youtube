@@ -129,6 +129,12 @@ public sealed class SettingsWindow : Window
                         v => Save(_settings.Data with { RemoveFillers = v })),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
+                    Toggle("Keep running in the notification area when I close the window",
+                        _settings.Data.CloseToTray ?? true,
+                        v => Save(_settings.Data with { CloseToTray = v })),
+                    Toggle("Unload the speech model after 5 minutes idle",
+                        _settings.Data.UnloadWhenIdle,
+                        v => Save(_settings.Data with { UnloadWhenIdle = v })),
                 },
             }),
 

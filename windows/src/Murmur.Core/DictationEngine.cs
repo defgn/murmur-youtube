@@ -50,6 +50,8 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
     private readonly bool _removeFillers;
     private readonly TimeSpan _partialInterval;
+    private readonly TimeSpan _idleUnloadTimeout;
+    private CancellationTokenSource? _idleUnload;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _recording;
@@ -107,6 +109,10 @@ public sealed class DictationEngine : IAsyncDisposable
     /// How often the live preview refreshes while recording. Defaults to two seconds; tests
     /// pass something shorter.
     /// </param>
+    /// <param name="idleUnloadTimeout">
+    /// How long after the last dictation the model is unloaded (frees ~660 MB). Zero or
+    /// negative disables unloading; the next dictation pays the reload.
+    /// </param>
     public DictationEngine(
         IAudioCapture capture,
         IHotkeySource hotkey,
@@ -115,7 +121,8 @@ public sealed class DictationEngine : IAsyncDisposable
         Func<IReadOnlyList<DictionaryEntry>> dictionary,
         IClock? clock = null,
         bool removeFillers = true,
-        TimeSpan? partialInterval = null)
+        TimeSpan? partialInterval = null,
+        TimeSpan idleUnloadTimeout = default)
     {
         _capture = capture;
         _hotkey = hotkey;
@@ -125,6 +132,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _clock = clock ?? SystemClock.Instance;
         _removeFillers = removeFillers;
         _partialInterval = partialInterval ?? TimeSpan.FromSeconds(2);
+        _idleUnloadTimeout = idleUnloadTimeout;
 
         _hotkey.Pressed += OnPressed;
         _hotkey.Released += OnReleased;
@@ -167,6 +175,10 @@ public sealed class DictationEngine : IAsyncDisposable
         try
         {
             if (State != DictationState.Idle) return;
+
+            // A dictation is starting: cancel any pending idle unload so the model stays
+            // warm for it.
+            CancelIdleUnload();
 
             _buffer = [];
             _startedAt = _clock.Now;
@@ -254,7 +266,49 @@ public sealed class DictationEngine : IAsyncDisposable
             _recording?.Dispose();
             _recording = null;
             SetState(DictationState.Idle);
+
+            // A fresh idle countdown starts after every dictation.
+            _ = ArmIdleUnloadAsync();
         }
+    }
+
+    /// <summary>
+    /// Arms the idle model unload: after <see cref="_idleUnloadTimeout"/> with no dictation,
+    /// the recognizer is disposed and its ~660 MB freed. The next dictation reloads it.
+    /// </summary>
+    private async Task ArmIdleUnloadAsync()
+    {
+        CancelIdleUnload();
+
+        if (_idleUnloadTimeout <= TimeSpan.Zero || !_transcriber.IsReady) return;
+
+        var cts = new CancellationTokenSource();
+        _idleUnload = cts;
+        try
+        {
+            await Task.Delay(_idleUnloadTimeout, cts.Token).ConfigureAwait(false);
+            if (cts.IsCancellationRequested || State != DictationState.Idle || !_transcriber.IsReady) return;
+
+            await _transcriber.UnloadAsync().ConfigureAwait(false);
+            Notice?.Invoke(this,
+                "Speech model unloaded after being idle — the next dictation reloads it in a couple of seconds.");
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal: a dictation started, or the app is shutting down.
+        }
+        catch (Exception e)
+        {
+            Notice?.Invoke(this, $"Could not unload the speech model: {e.Message}");
+        }
+    }
+
+    /// <summary>Cancels any pending idle unload — a dictation is starting.</summary>
+    private void CancelIdleUnload()
+    {
+        _idleUnload?.Cancel();
+        _idleUnload?.Dispose();
+        _idleUnload = null;
     }
 
     private async Task ProcessAsync(List<float>? samples)
@@ -436,6 +490,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
         await _capture.DisposeAsync().ConfigureAwait(false);
         await _transcriber.DisposeAsync().ConfigureAwait(false);
+        CancelIdleUnload();
         _transcribeGate.Dispose();
         _gate.Dispose();
     }

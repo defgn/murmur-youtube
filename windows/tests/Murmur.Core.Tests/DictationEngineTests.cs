@@ -24,7 +24,7 @@ public sealed class DictationEngineTests
         FakeTranscriber transcriber,
         ITextInjector injector,
         params DictionaryEntry[] dictionary) =>
-        Build(capture, hotkey, transcriber, injector, partialInterval: null, dictionary);
+        Build(capture, hotkey, transcriber, injector, partialInterval: null, idleUnloadTimeout: default, dictionary);
 
     private static DictationEngine Build(
         IAudioCapture capture,
@@ -32,9 +32,10 @@ public sealed class DictationEngineTests
         FakeTranscriber transcriber,
         ITextInjector injector,
         TimeSpan? partialInterval,
+        TimeSpan idleUnloadTimeout = default,
         params DictionaryEntry[] dictionary) =>
         new(capture, hotkey, transcriber, injector, () => dictionary, new FakeClock(),
-            removeFillers: true, partialInterval: partialInterval);
+            removeFillers: true, partialInterval: partialInterval, idleUnloadTimeout: idleUnloadTimeout);
 
     /// <summary>Presses, waits for capture to drain, then releases.</summary>
     private static async Task DictateAsync(FakeHotkeySource hotkey, DictationEngine engine)
@@ -235,6 +236,32 @@ public sealed class DictationEngineTests
 
         partials.ShouldNotBeEmpty();
         partials.ShouldAllBe(t => t == "hello there");
+    }
+
+    [Fact]
+    public async Task Idle_model_unload_frees_the_recognizer_and_the_next_dictation_reloads_it()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello");
+        var injector = new RecordingTextInjector();
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector,
+            partialInterval: null, idleUnloadTimeout: TimeSpan.FromMilliseconds(150));
+
+        // The model loads lazily on the first release.
+        await DictateAsync(hotkey, engine);
+        transcriber.IsReady.ShouldBeTrue();
+
+        // The idle timeout fires and frees the recognizer — the memory win of the feature.
+        for (var i = 0; i < 200 && transcriber.IsReady; i++) await Task.Delay(10);
+        transcriber.IsReady.ShouldBeFalse("the model must be unloaded after the idle timeout");
+
+        // And the next dictation reloads it transparently.
+        await DictateAsync(hotkey, engine);
+        transcriber.IsReady.ShouldBeTrue();
+        var expected = new[] { "hello", "hello" };
+        injector.Injected.ShouldBe(expected);
     }
 
     /// <summary>

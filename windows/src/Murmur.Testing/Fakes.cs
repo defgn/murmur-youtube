@@ -140,6 +140,13 @@ public sealed class FakeTranscriber : ITranscriber
     }
 
     /// <inheritdoc />
+    public ValueTask UnloadAsync()
+    {
+        IsReady = false;
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
     public ValueTask<string> TranscribeAsync(
         ReadOnlyMemory<float> samples,
         IReadOnlyList<string> biasPhrases,

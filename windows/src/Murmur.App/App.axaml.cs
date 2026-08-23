@@ -232,6 +232,8 @@ public partial class App : Application, IDisposable
 
     private void OnTrayQuit(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
     {
+        // Real quit: bypass the close-to-tray interception, then shut down.
+        _main?.ApproveClose();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown();
     });
 

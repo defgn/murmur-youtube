@@ -145,4 +145,14 @@ public sealed class ParakeetTranscriber : ITranscriber
         _recognizer = null;
         return ValueTask.CompletedTask;
     }
+
+    /// <inheritdoc />
+    public ValueTask UnloadAsync()
+    {
+        // Same as DisposeAsync minus the interface's own expectations: dispose the native
+        // recognizer (which frees the ~660 MB of model memory) and allow a reload later.
+        _recognizer?.Dispose();
+        _recognizer = null;
+        return ValueTask.CompletedTask;
+    }
 }

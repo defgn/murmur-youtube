@@ -27,9 +27,6 @@ namespace Murmur.App.Views;
 /// </remarks>
 public sealed class MainWindow : Window
 {
-    /// <summary>The default hero caption, shown when the engine has nothing to say.</summary>
-    private const string DefaultHint = "Hold Right Ctrl — or click the pill. Fillers like um, actually are removed automatically.";
-
     private readonly Composition? _composition;
     private readonly Border _heroPill;
     private TextBlock _heroLabel = null!;   // assigned by BuildHeroPill, called from the ctor
@@ -48,6 +45,12 @@ public sealed class MainWindow : Window
     private bool _heroPressed;
     private bool _recordingVisual;
     private bool _wasRecordingVisual;
+    private bool _closeApproved;
+
+    /// <summary>
+    /// Lets a real quit (tray menu, shutdown) pass through the close-to-tray interception.
+    /// </summary>
+    public void ApproveClose() => _closeApproved = true;
 
     /// <summary>Builds a window with no engine behind it. Used by headless tests.</summary>
     public MainWindow() : this(null) { }
@@ -89,7 +92,8 @@ public sealed class MainWindow : Window
 
         _subLine = new TextBlock
         {
-            Text = DefaultHint,
+            Text = string.Empty,
+            IsVisible = false,
             FontFamily = Tokens.Fonts.Grotesque,
             FontSize = Tokens.Fonts.Label,
             Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
@@ -115,7 +119,8 @@ public sealed class MainWindow : Window
         _waveTimer.Tick += (_, _) => SyncFromEngine();
         _waveTimer.Start();
 
-        // Transient engine notices (typed, failed, loading) revert to the standing hint.
+        // Transient engine notices (typed, failed, loading) appear under the pill, then
+        // vanish. No standing hint — the pill is the whole interface.
         _noticeTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(4),
@@ -123,8 +128,13 @@ public sealed class MainWindow : Window
         _noticeTimer.Tick += (_, _) =>
         {
             _noticeTimer.Stop();
-            _subLine.Text = DefaultHint;
+            _subLine.Text = string.Empty;
+            _subLine.IsVisible = false;
         };
+
+        // The close button: hide to the notification area and keep dictating, or quit —
+        // the first close asks, Settings decides afterwards.
+        Closing += OnClosingAsync;
 
         Content = BuildLayout();
         ShowSection(transcriptions: true);
@@ -136,6 +146,7 @@ public sealed class MainWindow : Window
                 Dispatcher.UIThread.Post(() =>
                 {
                     _subLine.Text = message;
+                    _subLine.IsVisible = true;
                     _noticeTimer.Stop();
                     _noticeTimer.Start();
                 });
@@ -503,6 +514,35 @@ public sealed class MainWindow : Window
         tab.FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal;
         tab.Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8);
         tab.BorderBrush = engaged ? Tokens.Brushes.Accent : Brushes.Transparent;
+    }
+
+    /// <summary>
+    /// The close button either hides to the notification area (dictation keeps working in
+    /// any app) or quits. The first close asks once; Settings stores the answer.
+    /// </summary>
+    private async void OnClosingAsync(object? sender, WindowClosingEventArgs e)
+    {
+        if (_closeApproved || _composition is null) return;
+
+        // Decide before anything closes: cancel the close, then hide or re-close.
+        e.Cancel = true;
+
+        var keep = _composition.Settings.Data.CloseToTray;
+        if (keep is null)
+        {
+            keep = await new CloseToTrayDialog(this).ShowDialog<bool>(this);
+            _composition.Settings.Update(_composition.Settings.Data with { CloseToTray = keep });
+        }
+
+        if (keep.Value)
+        {
+            Hide();
+        }
+        else
+        {
+            _closeApproved = true;
+            Close();
+        }
     }
 
     private void ShowSettings()

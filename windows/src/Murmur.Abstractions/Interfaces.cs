@@ -101,6 +101,12 @@ public interface ITranscriber : IAsyncDisposable
     /// <summary>Loads the model. Slow — call once, at startup or first use.</summary>
     ValueTask<bool> LoadAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Unloads the model and frees its memory, so an idle app is not holding hundreds of
+    /// megabytes. <see cref="LoadAsync"/> must work again afterwards.
+    /// </summary>
+    ValueTask UnloadAsync();
+
     /// <summary>Transcribes one utterance.</summary>
     /// <param name="samples">16 kHz mono float, in [-1, 1].</param>
     /// <param name="biasPhrases">

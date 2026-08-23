@@ -91,7 +91,8 @@ public sealed class Composition : IAsyncDisposable
                 capture!, hotkey!, transcriber, injector!,
                 () => dictionary.Entries,
                 clock: null,
-                removeFillers: settings.Data.RemoveFillers);
+                removeFillers: settings.Data.RemoveFillers,
+                idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero);
 
             // Persisted mic choice + boost apply live, without a restart.
             engine.ConfigureInput(settings.Data.InputDeviceId, settings.Data.InputGain);
@@ -138,6 +139,8 @@ internal sealed class UnavailableTranscriber : ITranscriber
         ReadOnlyMemory<float> samples,
         IReadOnlyList<string> biasPhrases,
         CancellationToken cancellationToken) => ValueTask.FromResult(string.Empty);
+
+    public ValueTask UnloadAsync() => ValueTask.CompletedTask;
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
