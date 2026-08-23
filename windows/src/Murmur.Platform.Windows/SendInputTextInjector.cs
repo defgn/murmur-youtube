@@ -105,6 +105,41 @@ public sealed class SendInputTextInjector : ITextInjector
     [DllImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
     private static extern uint MapVirtualKey(uint code, uint mapType);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool OpenClipboard(IntPtr owner);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseClipboard();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EmptyClipboard();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetClipboardData(uint format);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetClipboardData(uint format, IntPtr data);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalAlloc(uint flags, UIntPtr size);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalLock(IntPtr memory);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalUnlock(IntPtr memory);
+
+    [DllImport("kernel32.dll")]
+    private static extern UIntPtr GlobalSize(IntPtr memory);
+
+    private const uint CF_UNICODETEXT = 13;
+    private const uint GMEM_MOVEABLE = 0x0002;
+    private const uint GMEM_ZEROINIT = 0x0040;
+
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
 
     /// <summary>Called to place text on the clipboard and paste it.</summary>
@@ -126,7 +161,11 @@ public sealed class SendInputTextInjector : ITextInjector
 
         if (text.Length <= PasteThreshold && !hasNewlines)
         {
-            return TypeUnicode(text);
+            // SendInput is subject to UIPI: injecting into an elevated window from a normal
+            // process can return success and do nothing, and Electron-family apps sometimes
+            // drop Unicode keystrokes. When it visibly fails, fall back to the clipboard —
+            // paste works in every window the user can actually see.
+            if (TypeUnicode(text)) return true;
         }
 
         if (ClipboardPaste is not null)
@@ -134,7 +173,7 @@ public sealed class SendInputTextInjector : ITextInjector
             return await ClipboardPaste(text, cancellationToken).ConfigureAwait(false);
         }
 
-        return TypeWithNewlines(text);
+        return PasteViaClipboard(text);
     }
 
     /// <summary>Types arbitrary text as Unicode packets.</summary>
@@ -174,6 +213,95 @@ public sealed class SendInputTextInjector : ITextInjector
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Puts <paramref name="text"/> on the clipboard, presses Ctrl+V, and restores whatever
+    /// was there before. The fallback that works everywhere SendInput cannot.
+    /// </summary>
+    /// <remarks>
+    /// The clipboard is opened, written, closed, and the paste issued from the calling
+    /// thread; Windows clipboard access is per-thread and requires no apartment. The user's
+    /// previous clipboard content is saved first and restored after <see cref="PasteSettle"/>
+    /// so the app does not destroy whatever they had copied.
+    /// </remarks>
+    private static bool PasteViaClipboard(string text)
+    {
+        string? previous = ReadClipboardText();
+        if (!SetClipboardText(text)) return false;
+
+        if (!PressCtrlV())
+        {
+            // Best effort to put back what the user had; failing that, at least the
+            // transcript is on the clipboard where it can be pasted by hand.
+            if (previous is not null) SetClipboardText(previous);
+            return false;
+        }
+
+        Thread.Sleep(PasteSettle);
+        if (previous is not null) SetClipboardText(previous);
+        return true;
+    }
+
+    /// <summary>Reads the clipboard as UTF-16 text, or null if none.</summary>
+    private static string? ReadClipboardText()
+    {
+        if (!OpenClipboard(IntPtr.Zero)) return null;
+        try
+        {
+            var handle = GetClipboardData(CF_UNICODETEXT);
+            if (handle == IntPtr.Zero) return null;
+
+            var pointer = GlobalLock(handle);
+            if (pointer == IntPtr.Zero) return null;
+
+            try
+            {
+                var size = (int)GlobalSize(handle);
+                if (size <= 0) return null;
+                return Marshal.PtrToStringUni(pointer, size / 2);
+            }
+            finally
+            {
+                GlobalUnlock(handle);
+            }
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+
+    /// <summary>Replaces the clipboard contents with UTF-16 text.</summary>
+    private static bool SetClipboardText(string text)
+    {
+        if (!OpenClipboard(IntPtr.Zero)) return false;
+        try
+        {
+            if (!EmptyClipboard()) return false;
+
+            var bytes = (text.Length + 1) * 2;   // +1 for the NUL terminator
+            var memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, (UIntPtr)bytes);
+            if (memory == IntPtr.Zero) return false;
+
+            var pointer = GlobalLock(memory);
+            if (pointer == IntPtr.Zero) return false;
+
+            try
+            {
+                Marshal.Copy(text.ToCharArray(), 0, pointer, text.Length);
+            }
+            finally
+            {
+                GlobalUnlock(memory);
+            }
+
+            return SetClipboardData(CF_UNICODETEXT, memory) != IntPtr.Zero;
+        }
+        finally
+        {
+            CloseClipboard();
+        }
     }
 
     /// <summary>Types text, sending a real Return for each newline.</summary>

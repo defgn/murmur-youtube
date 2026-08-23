@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
@@ -48,7 +49,7 @@ public sealed class TranscriptionsView : UserControl
             },
         };
 
-        _store.Changed += (_, _) => Refresh();
+        _store.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
         Refresh();
     }
 

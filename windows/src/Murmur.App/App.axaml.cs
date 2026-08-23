@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Murmur.App.Views;
 
 namespace Murmur.App;
@@ -42,21 +43,25 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void OnTrayShow(object? sender, EventArgs e) => ShowMain();
+    // Tray callbacks arrive on a worker thread, not the UI thread. Touching windows from
+    // there crashes Avalonia with a cross-thread exception — which is what "click anything
+    // in the tray and the app dies" was. Every handler marshals to the UI dispatcher.
 
-    private void OnTraySettings(object? sender, EventArgs e)
+    private void OnTrayShow(object? sender, EventArgs e) => Dispatcher.UIThread.Post(ShowMain);
+
+    private void OnTraySettings(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
     {
         ShowMain();
         if (_main is not null && _composition is not null)
         {
             _ = new SettingsWindow(_composition).ShowDialog(_main);
         }
-    }
+    });
 
-    private void OnTrayQuit(object? sender, EventArgs e)
+    private void OnTrayQuit(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown();
-    }
+    });
 
     private void ShowMain()
     {

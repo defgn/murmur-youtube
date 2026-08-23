@@ -66,6 +66,12 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <summary>Raised whenever <see cref="State"/> or <see cref="Level"/> changes.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>
+    /// Raised for user-visible status, e.g. "loading model…" or "could not type the
+    /// transcript". The panel shows the latest message so failures are never silent.
+    /// </summary>
+    public event EventHandler<string>? Notice;
+
     /// <summary>Wires the engine to its platform implementations.</summary>
     /// <param name="capture">Microphone source.</param>
     /// <param name="hotkey">Push-to-talk source.</param>
@@ -197,6 +203,13 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             await ProcessAsync(samples).ConfigureAwait(false);
         }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // A fire-and-forget task that throws is an unobserved exception: the app keeps
+            // running and the user sees nothing — the worst possible outcome for a dictation
+            // app. Surface it instead.
+            Notice?.Invoke(this, $"Something went wrong: {e.Message}");
+        }
         finally
         {
             _recording?.Dispose();
@@ -220,7 +233,13 @@ public sealed class DictationEngine : IAsyncDisposable
         // like "it heard me but typed nothing".
         if (!_transcriber.IsReady)
         {
-            await _transcriber.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+            Notice?.Invoke(this, "Loading speech model…");
+            var loaded = await _transcriber.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!loaded)
+            {
+                Notice?.Invoke(this, "Speech model failed to load — check Settings → Model.");
+                return;
+            }
         }
 
         var entries = _dictionary();
@@ -253,7 +272,12 @@ public sealed class DictationEngine : IAsyncDisposable
             Corrections: applied);
 
         Completed?.Invoke(this, result);
-        await _injector.InjectAsync(corrected, CancellationToken.None).ConfigureAwait(false);
+        var injected = await _injector.InjectAsync(corrected, CancellationToken.None).ConfigureAwait(false);
+
+        Notice?.Invoke(this, injected
+            ? "Typed into the focused app."
+            : "Transcribed, but could not type it — the focused window may be elevated. "
+              + "The text is in the transcriptions list.");
     }
 
     private void SetState(DictationState state)

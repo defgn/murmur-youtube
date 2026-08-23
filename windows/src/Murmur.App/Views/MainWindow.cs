@@ -31,6 +31,7 @@ public sealed class MainWindow : Window
     private readonly Lamp _recordLamp;
     private readonly VuMeter _meter;
     private readonly TextBlock _counter;
+    private readonly TextBlock _status;
     private readonly ContentControl _sectionHost;
     private readonly TransportKey _transcriptionsKey;
     private readonly TransportKey _dictionaryKey;
@@ -69,6 +70,16 @@ public sealed class MainWindow : Window
             Foreground = Tokens.Brushes.InkOnDeck,
         };
 
+        _status = new TextBlock
+        {
+            Text = "Hold the push-to-talk key to dictate.",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
         _transcriptionsKey = new TransportKey { Content = "TRANSCRIPTIONS", IsEngaged = true };
         _dictionaryKey = new TransportKey { Content = "DICTIONARY" };
         _transcriptionsKey.Click += (_, _) => ShowSection(transcriptions: true);
@@ -89,7 +100,13 @@ public sealed class MainWindow : Window
         Content = BuildLayout();
         ShowSection(transcriptions: true);
 
-        if (_composition?.Engine is not null) _composition.Engine.Start();
+        if (_composition?.Engine is not null)
+        {
+            // Engine notices arrive on a background thread; the panel is UI-thread-only.
+            _composition.Engine.Notice += (_, message) =>
+                Dispatcher.UIThread.Post(() => _status.Text = message);
+            _composition.Engine.Start();
+        }
     }
 
     private DockPanel BuildLayout()
@@ -97,6 +114,7 @@ public sealed class MainWindow : Window
         var root = new DockPanel { Margin = new Thickness(Tokens.Space.Roomy) };
 
         root.Children.Add(Panels.Docked(BuildTransportPanel(), Dock.Top));
+        root.Children.Add(Panels.Docked(BuildStatusStrip(), Dock.Top));
         root.Children.Add(Panels.Docked(BuildSectionKeys(), Dock.Top));
 
         if (_composition is not null && !Composition.IsModelInstalled)
@@ -107,6 +125,19 @@ public sealed class MainWindow : Window
         root.Children.Add(BuildWell(_sectionHost));
         return root;
     }
+
+    /// <summary>A thin strip showing what the engine last did — the failure is never silent.</summary>
+    private BrushedPanel BuildStatusStrip() => new()
+    {
+        Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
+        Child = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Base,
+            Margin = new Thickness(Tokens.Space.Base),
+            Children = { _status },
+        },
+    };
 
     /// <summary>Record/stop, the record lamp, the level meter and the tape counter.</summary>
     private BrushedPanel BuildTransportPanel()
