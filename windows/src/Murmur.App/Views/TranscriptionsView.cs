@@ -123,7 +123,8 @@ public sealed class TranscriptionsView : UserControl
             FontSize = Tokens.Fonts.BodyLarge,
             Foreground = Tokens.Brushes.Ink,
             TextWrapping = TextWrapping.Wrap,
-            LineHeight = 1.5,
+            // Pixels, not a multiplier (16px * 1.5) — see BuildRow.
+            LineHeight = 24,
             VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -179,7 +180,6 @@ public sealed class TranscriptionsView : UserControl
                 },
             },
         };
-        header.Children.Add(meta);
 
         var actions = new StackPanel
         {
@@ -189,7 +189,9 @@ public sealed class TranscriptionsView : UserControl
             Children = { copy, delete },
         };
 
-        // Docked first; the LAST child (meta) fills the remaining space.
+        // Docked first; the LAST child (meta) fills the remaining space. meta is added
+        // exactly once, here — adding it above as well crashed with "already has a visual
+        // parent" the moment a transcript existed to render.
         DockPanel.SetDock(actions, Dock.Right);
         header.Children.Add(actions);
         header.Children.Add(meta);
@@ -207,7 +209,9 @@ public sealed class TranscriptionsView : UserControl
                     FontSize = Tokens.Fonts.BodyLarge,
                     Foreground = Tokens.Brushes.Ink,
                     TextWrapping = TextWrapping.Wrap,
-                    LineHeight = 1.5,
+                    // Pixels, not a multiplier: 16px * 1.5. A CSS-style 1.5 here collapses
+                    // every line to 1.5px tall and the text becomes invisible.
+                    LineHeight = 24,
                 },
             },
         };

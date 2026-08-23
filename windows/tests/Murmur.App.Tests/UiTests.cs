@@ -3,9 +3,11 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Themes.Fluent;
+using Avalonia.VisualTree;
 using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.App.Views;
+using Murmur.Core;
 using Shouldly;
 
 [assembly: AvaloniaTestApplication(typeof(Murmur.AppTests.TestAppBuilder))]
@@ -75,6 +77,38 @@ public sealed class MainWindowTests
 
         window.MinWidth.ShouldBe(760);
         window.MinHeight.ShouldBe(560);
+    }
+
+    [AvaloniaFact]
+    public void Transcriptions_view_renders_rows_without_throwing()
+    {
+        // Regression: the row header DockPanel once added its meta child twice, which
+        // threw "already has a visual parent" the moment a transcript existed to render.
+        // The empty store hid it from every test; a populated store is the real world.
+        const string transcript = "Hello, this is a transcript that must render.";
+        var path = Path.Combine(Path.GetTempPath(), $"woffle-tx-{Guid.NewGuid():N}.jsonl");
+        var store = new TranscriptStore(path);
+        store.Add(new TranscriptRecord
+        {
+            At = DateTimeOffset.Now,
+            Text = transcript,
+            ProcessingSeconds = 0.42,
+        });
+
+        var view = new TranscriptionsView(store);
+        var window = new Window { Content = view };
+        window.Show();
+
+        view.Bounds.Height.ShouldBeGreaterThan(0);
+
+        // The body text must actually be in the tree AND have a real line height — a
+        // CSS-style LineHeight of 1.5px made the text invisible (Avalonia takes pixels).
+        var text = view.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .FirstOrDefault(t => t.Text == transcript);
+        text.ShouldNotBeNull("the transcript body must render");
+        text!.LineHeight.ShouldBeGreaterThan(text.FontSize,
+            "line height smaller than the font renders the text invisible");
     }
 }
 
