@@ -122,6 +122,8 @@ public sealed class SettingsWindow : Window
                 {
                     Toggle("Type transcripts into the focused app", _settings.Data.InjectText,
                         v => Save(_settings.Data with { InjectText = v })),
+                    Toggle("Remove filler words (um, uh, er, actually…)", _settings.Data.RemoveFillers,
+                        v => Save(_settings.Data with { RemoveFillers = v })),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
                 },

@@ -48,6 +48,7 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly ITextInjector _injector;
     private readonly IClock _clock;
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
+    private readonly bool _removeFillers;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _recording;
@@ -82,13 +83,17 @@ public sealed class DictationEngine : IAsyncDisposable
     /// a restart.
     /// </param>
     /// <param name="clock">Time source; defaults to the system clock.</param>
+    /// <param name="removeFillers">
+    /// Whether to strip spoken disfluencies ("um", "er", "uh") from transcripts. Default true.
+    /// </param>
     public DictationEngine(
         IAudioCapture capture,
         IHotkeySource hotkey,
         ITranscriber transcriber,
         ITextInjector injector,
         Func<IReadOnlyList<DictionaryEntry>> dictionary,
-        IClock? clock = null)
+        IClock? clock = null,
+        bool removeFillers = true)
     {
         _capture = capture;
         _hotkey = hotkey;
@@ -96,6 +101,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _injector = injector;
         _dictionary = dictionary;
         _clock = clock ?? SystemClock.Instance;
+        _removeFillers = removeFillers;
 
         _hotkey.Pressed += OnPressed;
         _hotkey.Released += OnReleased;
@@ -259,6 +265,15 @@ public sealed class DictationEngine : IAsyncDisposable
 
         var raw = string.Join(' ', transcripts);
         if (string.IsNullOrWhiteSpace(raw)) return;
+
+        // Spoken disfluencies ("um", "er", "actually,") are transcribed faithfully by the
+        // engine and almost never wanted on the page. Cleaned before the dictionary pass so
+        // correction rules still see the words that remain.
+        if (_removeFillers)
+        {
+            raw = DisfluencyCleaner.Clean(raw);
+            if (string.IsNullOrWhiteSpace(raw)) return;
+        }
 
         // The dictionary runs last and unconditionally. Biasing only raises the odds of the
         // right word; this is the pass that guarantees it.

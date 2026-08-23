@@ -31,6 +31,12 @@ public sealed record SettingsData
     /// <summary>Whether to type the transcript into the focused app.</summary>
     public bool InjectText { get; init; } = true;
 
+    /// <summary>
+    /// Whether to strip spoken disfluencies ("um", "er", "uh", "actually,") from
+    /// transcripts — the Wispr Flow-style clean-up.
+    /// </summary>
+    public bool RemoveFillers { get; init; } = true;
+
     /// <summary>Whether to keep a transcript history.</summary>
     public bool KeepHistory { get; init; } = true;
 }

@@ -89,7 +89,9 @@ public sealed class Composition : IAsyncDisposable
 
             engine = new DictationEngine(
                 capture!, hotkey!, transcriber, injector!,
-                () => dictionary.Entries);
+                () => dictionary.Entries,
+                clock: null,
+                removeFillers: settings.Data.RemoveFillers);
 
             // Persisted mic choice + boost apply live, without a restart.
             engine.ConfigureInput(settings.Data.InputDeviceId, settings.Data.InputGain);
