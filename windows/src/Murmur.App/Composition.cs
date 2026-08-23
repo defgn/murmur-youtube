@@ -55,6 +55,16 @@ public sealed class Composition : IAsyncDisposable
     /// <summary>Whether the speech model is present on disk.</summary>
     public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
 
+    /// <summary>
+    /// Selects the microphone and gain, persists them, and applies them to the running
+    /// engine immediately (the capture reads the device at the start of each recording).
+    /// </summary>
+    public void ConfigureInput(string? deviceId, float gain)
+    {
+        Settings.Update(Settings.Data with { InputDeviceId = deviceId, InputGain = gain });
+        Engine?.ConfigureInput(deviceId, gain);
+    }
+
     /// <summary>Builds the object graph.</summary>
     public static Composition Create()
     {
@@ -62,7 +72,7 @@ public sealed class Composition : IAsyncDisposable
         var dictionary = new DictionaryFile(DictionaryFile.DefaultPath);
         var transcripts = new TranscriptStore(TranscriptStore.DefaultPath);
 
-        var capture = PlatformFactory.CreateAudioCapture();
+        var capture = PlatformFactory.CreateAudioCapture(settings.Data.InputDeviceId);
         var hotkey = PlatformFactory.CreateHotkeySource(settings.Data.PushToTalkKey);
         var injector = PlatformFactory.CreateTextInjector();
 
@@ -80,6 +90,9 @@ public sealed class Composition : IAsyncDisposable
             engine = new DictationEngine(
                 capture!, hotkey!, transcriber, injector!,
                 () => dictionary.Entries);
+
+            // Persisted mic choice + boost apply live, without a restart.
+            engine.ConfigureInput(settings.Data.InputDeviceId, settings.Data.InputGain);
 
             engine.Completed += (_, result) =>
             {

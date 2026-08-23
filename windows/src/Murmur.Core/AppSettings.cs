@@ -19,6 +19,15 @@ public sealed record SettingsData
     /// <summary>Where the speech model lives, or null to search the default locations.</summary>
     public string? ModelDirectory { get; init; }
 
+    /// <summary>
+    /// The WASAPI endpoint id of the microphone to capture from, or null for the system
+    /// default. Persisted so a multi-mic setup picks the same mic every launch.
+    /// </summary>
+    public string? InputDeviceId { get; init; }
+
+    /// <summary>Linear gain applied to captured audio. 1.0 is unity (no boost).</summary>
+    public float InputGain { get; init; } = 1f;
+
     /// <summary>Whether to type the transcript into the focused app.</summary>
     public bool InjectText { get; init; } = true;
 

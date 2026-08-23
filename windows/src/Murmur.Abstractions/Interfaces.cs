@@ -42,9 +42,28 @@ public interface IAudioCapture : IAsyncDisposable
     /// <summary>Whether capture is currently running.</summary>
     bool IsCapturing { get; }
 
+    /// <summary>
+    /// The input device to capture from, or null for the system default. Read at the start
+    /// of every capture session, so changing it between recordings takes effect immediately.
+    /// </summary>
+    string? DeviceId { get; set; }
+
+    /// <summary>
+    /// Linear gain applied to captured samples before they leave the platform layer.
+    /// Default 1.0. Lets quiet microphones reach the model without the user shouting —
+    /// also visible on the level meter, because the boost is applied upstream of it.
+    /// </summary>
+    float Gain { get; set; }
+
     /// <summary>Starts capture and yields chunks until cancelled.</summary>
     IAsyncEnumerable<AudioChunk> CaptureAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>One microphone the user can choose in Settings.</summary>
+/// <param name="Id">The WASAPI endpoint id, persisted in settings.</param>
+/// <param name="Name">Human-readable device name.</param>
+/// <param name="IsDefault">Whether this is the OS default capture device.</param>
+public readonly record struct AudioDeviceInfo(string Id, string Name, bool IsDefault);
 
 /// <summary>Raised when the push-to-talk key goes down or comes up.</summary>
 public interface IHotkeySource : IDisposable

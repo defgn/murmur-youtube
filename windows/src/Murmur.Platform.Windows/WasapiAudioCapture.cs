@@ -29,7 +29,6 @@ public sealed class WasapiAudioCapture : IAudioCapture
 {
     private const int BufferMilliseconds = 50;
 
-    private readonly string? _deviceId;
     private WasapiCapture? _capture;
 
     private Channel<float[]>? _channel;
@@ -40,7 +39,13 @@ public sealed class WasapiAudioCapture : IAudioCapture
 
     /// <summary>Captures from a specific device, or the default when null.</summary>
     /// <param name="deviceId">An <c>MMDevice.ID</c>, or null for the system default.</param>
-    public WasapiAudioCapture(string? deviceId = null) => _deviceId = deviceId;
+    public WasapiAudioCapture(string? deviceId = null) => DeviceId = deviceId;
+
+    /// <inheritdoc />
+    public string? DeviceId { get; set; }
+
+    /// <inheritdoc />
+    public float Gain { get; set; } = 1f;
 
     /// <inheritdoc />
     public bool IsCapturing { get; private set; }
@@ -82,11 +87,11 @@ public sealed class WasapiAudioCapture : IAudioCapture
     private void StartCapture()
     {
         using var enumerator = new MMDeviceEnumerator();
-        var device = _deviceId is null
+        var device = DeviceId is null
             // Communications, not Console: this follows the device the user chose as their
             // default *communication* device, which is what headset users expect.
             ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications)
-            : enumerator.GetDevice(_deviceId);
+            : enumerator.GetDevice(DeviceId);
 
         // Bounded and drop-oldest so a slow consumer can never block the capture thread.
         // Losing the oldest audio is bad; stalling the audio engine is worse.
@@ -212,6 +217,18 @@ public sealed class WasapiAudioCapture : IAudioCapture
 
     private void Publish(float[] samples)
     {
+        // Gain applied before anything downstream sees the samples — the level meter reads
+        // chunk RMS, so a boost is visible on the meter as well as reaching the model.
+        // Clamped to [-1, 1]: the model's input contract, and loud mics should stay clean.
+        if (Gain != 1f)
+        {
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var scaled = samples[i] * Gain;
+                samples[i] = scaled > 1f ? 1f : scaled < -1f ? -1f : scaled;
+            }
+        }
+
         DetectBlockedMicrophone(samples);
         _channel?.Writer.TryWrite(samples);   // TryWrite never blocks
     }

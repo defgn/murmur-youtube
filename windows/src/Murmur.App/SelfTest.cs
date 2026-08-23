@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Murmur.Abstractions;
 using Murmur.Core;
 using Murmur.Dictionary;
 using Murmur.Speech;
@@ -89,8 +90,55 @@ public static class SelfTest
         var located = ParakeetTranscriber.Locate();
         Console.WriteLine($"  model: {located ?? "(not installed — expected on a clean runner)"}");
 
-        return Check("model search paths are absolute",
+        var failures = Check("model search paths are absolute",
             ParakeetTranscriber.DefaultSearchPaths().All(Path.IsPathRooted));
+
+        // The deeper check: does the model actually LOAD and TRANSCRIBE? A recognizer that
+        // was never loaded returns empty text silently — the exact failure that unit tests
+        // with fakes cannot catch, because fakes don't need loading. Running the real engine
+        // here is the only honest substitute for a human holding the key.
+        if (located is not null)
+        {
+            failures += CheckModelLoadsAndTranscribes(located);
+        }
+
+        return failures;
+    }
+
+    private static int CheckModelLoadsAndTranscribes(string modelDirectory)
+    {
+        try
+        {
+            var transcriber = new ParakeetTranscriber(modelDirectory);
+            var loaded = transcriber.LoadAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+            if (!loaded)
+            {
+                return Check("model loads", false);
+            }
+
+            // 1.5 s of a 440 Hz tone. The recognizer may produce text or silence for a pure
+            // tone — the point is that inference runs end to end without throwing, proving
+            // the model files are loadable, the encoder/decoder/joiner wired, and the native
+            // sherpa-onnx runtime functional. The first real utterance will do this anyway;
+            // doing it here surfaces a broken model before the user's first key press.
+            var samples = new float[AudioChunk.SampleRate * 3 / 2];
+            for (var i = 0; i < samples.Length; i++)
+            {
+                samples[i] = 0.2f * MathF.Sin(2 * MathF.PI * 440 * i / AudioChunk.SampleRate);
+            }
+
+            var text = transcriber.TranscribeAsync(samples, [], CancellationToken.None)
+                .AsTask().GetAwaiter().GetResult();
+
+            Console.WriteLine($"  sample transcription: {(string.IsNullOrWhiteSpace(text) ? "(empty — tone, not speech)" : $"\"{text}\"")}");
+            return Check("model loads and transcribes", true);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"  model error: {e.GetType().Name}: {e.Message}");
+            return Check("model loads and transcribes", false);
+        }
     }
 
     /// <summary>
@@ -113,9 +161,19 @@ public static class SelfTest
         }
 
         var failures = Check("Windows platform assembly loads from the bundle", PlatformFactory.IsAvailable);
-        if (!PlatformFactory.IsAvailable) return failures;
+        if (!PlatformFactory.IsAvailable)
+        {
+            var error = PlatformFactory.LastLoadError;
+            Console.WriteLine(error is null
+                ? "  (no load error captured — platform layer not present in publish)"
+                : $"  load error: {error.GetType().Name}: {error.Message}"
+                  + (error.InnerException is not null
+                      ? $" -> {error.InnerException.GetType().Name}: {error.InnerException.Message}"
+                      : string.Empty));
+            return failures;
+        }
 
-        failures += Check("audio capture constructs", PlatformFactory.CreateAudioCapture() is not null);
+        failures += Check("audio capture constructs", PlatformFactory.CreateAudioCapture(null) is not null);
         failures += Check("text injector constructs", PlatformFactory.CreateTextInjector() is not null);
 
         // Constructed, not started: installing a real low-level keyboard hook on a CI runner

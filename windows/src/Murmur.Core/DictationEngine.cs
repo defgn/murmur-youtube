@@ -100,6 +100,16 @@ public sealed class DictationEngine : IAsyncDisposable
     public bool Start() => _hotkey.Start();
 
     /// <summary>
+    /// Selects the microphone and input gain. Applied live: the capture reads the device
+    /// at the start of every recording, so the next hold uses the new choice.
+    /// </summary>
+    public void ConfigureInput(string? deviceId, float gain)
+    {
+        _capture.DeviceId = deviceId;
+        _capture.Gain = gain;
+    }
+
+    /// <summary>
     /// Starts or stops recording from a button rather than the hotkey.
     /// </summary>
     /// <remarks>
@@ -203,6 +213,15 @@ public sealed class DictationEngine : IAsyncDisposable
         // it is the only figure on which a streaming and a batch engine compare honestly.
         var releasedAt = _clock.Now;
         var audio = new ReadOnlyMemory<float>(samples.ToArray());
+
+        // The model loads lazily on first use: ~2 s on a fresh launch, then never again.
+        // Engines must be loaded before they are asked to transcribe — a recognizer that
+        // was never constructed returns empty text rather than erroring, which would look
+        // like "it heard me but typed nothing".
+        if (!_transcriber.IsReady)
+        {
+            await _transcriber.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+        }
 
         var entries = _dictionary();
         var bias = DictionaryCorrector.BiasPhrases(entries);

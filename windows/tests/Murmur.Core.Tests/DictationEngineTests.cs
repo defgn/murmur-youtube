@@ -38,6 +38,26 @@ public sealed class DictationEngineTests
     }
 
     [Fact]
+    public async Task Transcriber_is_loaded_before_first_utterance()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello");
+        var injector = new RecordingTextInjector();
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(0.2), hotkey, transcriber, injector);
+
+        await DictateAsync(hotkey, engine);
+
+        // The contract, enforced by the fake itself: a transcriber that is asked to work
+        // before being loaded throws. This test exists so the *reason* is visible — the
+        // engine must load the model on first use, not on the second dictation.
+        transcriber.IsReady.ShouldBeTrue();
+        injector.Injected.ShouldHaveSingleItem();
+        injector.Injected[0].ShouldBe("hello");
+    }
+
+    [Fact]
     public async Task Speech_is_transcribed_corrected_and_injected()
     {
         var hotkey = new FakeHotkeySource();

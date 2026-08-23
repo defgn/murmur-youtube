@@ -45,6 +45,12 @@ public sealed class FakeAudioCapture : IAudioCapture
     public bool IsCapturing { get; private set; }
 
     /// <inheritdoc />
+    public string? DeviceId { get; set; }
+
+    /// <inheritdoc />
+    public float Gain { get; set; } = 1f;
+
+    /// <inheritdoc />
     public async IAsyncEnumerable<AudioChunk> CaptureAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -104,6 +110,12 @@ public sealed class FakeHotkeySource : IHotkeySource
 }
 
 /// <summary>Returns canned transcripts and records what it was asked to transcribe.</summary>
+/// <remarks>
+/// Enforces the transcriber contract: <see cref="TranscribeAsync"/> throws if called before
+/// <see cref="LoadAsync"/>. The real engine returns empty text from an unloaded recognizer
+/// rather than erroring, which is exactly the silent failure that made this worth enforcing —
+/// a fake that never threw could not have caught the engine forgetting to load the model.
+/// </remarks>
 public sealed class FakeTranscriber : ITranscriber
 {
     private readonly Queue<string> _responses;
@@ -133,6 +145,12 @@ public sealed class FakeTranscriber : ITranscriber
         IReadOnlyList<string> biasPhrases,
         CancellationToken cancellationToken)
     {
+        if (!IsReady)
+        {
+            throw new InvalidOperationException(
+                "TranscribeAsync called before LoadAsync — the engine must load the model first.");
+        }
+
         SegmentLengths.Add(samples.Length);
         LastBias = biasPhrases;
         var text = _responses.Count > 1 ? _responses.Dequeue() : _responses.Peek();

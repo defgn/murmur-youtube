@@ -54,18 +54,58 @@ internal static class PlatformFactory
 
         AssemblyLoadContext.Default.Resolving += (context, name) =>
         {
-            if (!string.Equals(name.Name, AssemblyName, StringComparison.Ordinal)) return null;
-
-            var candidate = System.IO.Path.Combine(AppContext.BaseDirectory, AssemblyName + ".dll");
+            // Resolve the platform assembly AND anything it depends on (NAudio*) from the
+            // directory next to the executable. The platform layer is deliberately invisible
+            // to the compiler (that is what keeps Murmur.App on plain net10.0), so none of
+            // its dependencies are in the app's deps.json — the default load context cannot
+            // find them, and the Resolving event is the only reliable place to teach it.
+            var candidate = System.IO.Path.Combine(AppContext.BaseDirectory, name.Name + ".dll");
             return File.Exists(candidate) ? context.LoadFromAssemblyPath(candidate) : null;
         };
     }
 
     private static bool _resolverInstalled;
 
-    /// <summary>Creates the WASAPI capture, or null off Windows.</summary>
-    public static IAudioCapture? CreateAudioCapture() =>
-        Create<IAudioCapture>("WasapiAudioCapture", [null]);
+    /// <summary>Creates the WASAPI capture for the given device, or null off Windows.</summary>
+    public static IAudioCapture? CreateAudioCapture(string? deviceId) =>
+        Create<IAudioCapture>("WasapiAudioCapture", [deviceId]);
+
+    /// <summary>
+    /// Lists capture devices for Settings, or an empty list when the platform layer is absent.
+    /// </summary>
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026:RequiresUnreferencedCode",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2072:DynamicallyAccessedMembers",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075:DynamicallyAccessedMembers",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    [UnconditionalSuppressMessage(
+        "SingleFile",
+        "IL3000:AssemblyLocation",
+        Justification = "Assembly.Load resolves from the bundle, not from a file path.")]
+    public static IReadOnlyList<AudioDeviceInfo> ListInputDevices()
+    {
+        var assembly = Load();
+        var type = assembly?.GetType($"{Namespace}.WasapiDevices");
+        var method = type?.GetMethod("ListInputDevices", Type.EmptyTypes);
+        if (method is null) return [];
+
+        try
+        {
+            return method.Invoke(null, null) as IReadOnlyList<AudioDeviceInfo> ?? [];
+        }
+        catch (Exception e) when (e is TargetInvocationException or MemberAccessException)
+        {
+            // A device enumeration problem must never take down Settings.
+            return [];
+        }
+    }
 
     /// <summary>Creates the low-level keyboard hook, or null off Windows.</summary>
     [UnconditionalSuppressMessage(
@@ -137,9 +177,17 @@ internal static class PlatformFactory
         }
         catch (Exception e) when (e is FileNotFoundException or BadImageFormatException)
         {
+            LastLoadError = e;
             _assembly = null;
         }
 
         return _assembly;
     }
+
+    /// <summary>
+    /// The exception from the last failed load attempt, or null after a successful load.
+    /// Surfaced by the self-test: a missing platform layer is a silent failure, and
+    /// "cannot load" without the reason is undiagnosable on a machine you cannot see.
+    /// </summary>
+    public static Exception? LastLoadError { get; private set; }
 }

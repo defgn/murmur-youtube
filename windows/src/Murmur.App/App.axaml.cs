@@ -49,7 +49,7 @@ public partial class App : Application
         ShowMain();
         if (_main is not null && _composition is not null)
         {
-            _ = new SettingsWindow(_composition.Settings).ShowDialog(_main);
+            _ = new SettingsWindow(_composition).ShowDialog(_main);
         }
     }
 

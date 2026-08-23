@@ -32,7 +32,7 @@
        COPIED next to the app without being compiled against — which is what lets this
        project stay on plain net10.0 and therefore build and headless-test on macOS.
        Skipped entirely off Windows, where it cannot compile. -->
-  <ItemGroup Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+  <ItemGroup Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
     <!-- SkipGetTargetFrameworkProperties is required: without it MSBuild refuses the
          reference outright ("targets net10.0-windows, cannot be referenced by a project
          that targets .NETCoreApp") before ReferenceOutputAssembly is ever considered. -->
@@ -47,10 +47,11 @@
        explicitly. PlatformFactory resolves it by name at startup. -->
   <Target Name="PublishWindowsPlatformLayer"
           BeforeTargets="ComputeResolvedFilesToPublishList"
-          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
     <MSBuild Projects="..\Murmur.Platform.Windows\Murmur.Platform.Windows.csproj"
              Targets="Build"
-             Properties="Configuration=$(Configuration)" />
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier" />
     <ItemGroup>
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
@@ -67,7 +68,7 @@
 
   <Target Name="CopyWindowsPlatformLayer"
           AfterTargets="Build"
-          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true'">
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
     <ItemGroup>
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
       <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
