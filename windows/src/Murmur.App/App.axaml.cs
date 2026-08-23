@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -13,12 +14,17 @@ public partial class App : Application, IDisposable
     private Composition? _composition;
     private MainWindow? _main;
     private Mutex? _singleInstance;
+    private EventWaitHandle? _showSignal;
+    private Thread? _signalThread;
 
-    /// <summary>Releases the single-instance mutex.</summary>
+    /// <summary>Releases the single-instance handles.</summary>
     public void Dispose()
     {
         GC.SuppressFinalize(this);
         _singleInstance?.Dispose();
+        _singleInstance = null;
+        _showSignal?.Dispose();
+        _showSignal = null;
     }
 
     /// <inheritdoc />
@@ -27,57 +33,186 @@ public partial class App : Application, IDisposable
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()
     {
+        // A desktop app that dies at startup with no trace reads as "it won't launch".
+        // Everything noteworthy goes to %LOCALAPPDATA%\Woffle\crash.log, so a launch
+        // failure is one file instead of a guessing game.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            WriteLog("unhandled", e.ExceptionObject as Exception);
+        WriteLog("startup", null);
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Single instance, deliberately. Two dictation processes would fight over the
-            // push-to-talk hook and inject the same text twice. A second launch exits
-            // immediately — the running instance is the one the user should be using.
-            _singleInstance = new Mutex(initiallyOwned: true, "Local\\Woffle.SingleInstance", out var createdNew);
-            if (!createdNew)
+            try
             {
-                Dispatcher.UIThread.Post(() => desktop.Shutdown());
-                base.OnFrameworkInitializationCompleted();
-                return;
+                // Single instance, deliberately. Two dictation processes would fight over
+                // the push-to-talk hook and inject the same text twice. A second launch
+                // wakes the running instance instead of dying silently — a silent exit is
+                // indistinguishable from "the app won't launch".
+                if (!AcquireSingleInstance(desktop))
+                {
+                    base.OnFrameworkInitializationCompleted();
+                    return;
+                }
+
+                _composition = Composition.Create();
+                _main = new MainWindow(_composition);
+                desktop.MainWindow = _main;
+
+                // Closing the window exits the app, tray icon included. OnLastWindowClose is
+                // the mode; the explicit shutdown on window close is the belt and braces —
+                // whatever keeps a window counted (a stray dialog, a tray quirk), the close
+                // button always leaves. A process that survives its window in Task Manager
+                // reads as broken.
+                desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+                _main.Closed += (_, _) =>
+                {
+                    if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+                    {
+                        lifetime.Shutdown();
+                    }
+                };
+
+                // Disposing tears down the keyboard hook and releases the audio device.
+                // Leaving a low-level hook installed after exit is the kind of thing that
+                // makes a machine feel broken until it is rebooted.
+                desktop.ShutdownRequested += (_, _) =>
+                {
+                    try
+                    {
+                        _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    }
+                    catch (Exception e)
+                    {
+                        // The process is leaving regardless; a failed disposal must not turn
+                        // a clean shutdown into a crash dialog.
+                        WriteLog("shutdown", e);
+                    }
+                    _composition = null;
+                    Dispose();
+                };
             }
-
-            _composition = Composition.Create();
-            _main = new MainWindow(_composition);
-            desktop.MainWindow = _main;
-
-            // Closing the window exits the app, tray icon included. OnLastWindowClose is the
-            // mode; the explicit shutdown on window close is the belt and braces — whatever
-            // keeps a window counted (a stray dialog, a tray quirk), the close button always
-            // leaves. A process that survives its window in Task Manager reads as broken.
-            desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
-            _main.Closed += (_, _) =>
+            catch (Exception e)
             {
-                if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
-                {
-                    lifetime.Shutdown();
-                }
-            };
-
-            // Disposing tears down the keyboard hook and releases the audio device. Leaving
-            // a low-level hook installed after exit is the kind of thing that makes a
-            // machine feel broken until it is rebooted.
-            desktop.ShutdownRequested += (_, _) =>
-            {
-                try
-                {
-                    _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                }
-                catch
-                {
-                    // The process is leaving regardless; a failed disposal must not turn a
-                    // clean shutdown into a crash dialog.
-                }
-                _composition = null;
-                _singleInstance?.Dispose();
-                _singleInstance = null;
-            };
+                WriteLog("startup", e);
+                throw;
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Takes the single-instance mutex, or wakes the running instance and reports the
+    /// second launch. Returns false when another instance already owns the app.
+    /// </summary>
+    private bool AcquireSingleInstance(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        _singleInstance = new Mutex(initiallyOwned: true, "Local\\Woffle.SingleInstance", out var createdNew);
+        if (createdNew)
+        {
+            StartShowSignalListener();
+            return true;
+        }
+
+        WriteLog("single-instance", null);
+
+        // Ask the running instance to come to the front.
+        try
+        {
+            using var signal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\Woffle.ShowWindow");
+            signal.Set();
+        }
+        catch (Exception e)
+        {
+            WriteLog("single-instance signal", e);
+        }
+
+        // And tell the user why nothing new appeared — Win32 MessageBox because it must
+        // work before any Avalonia window exists.
+        try
+        {
+            _ = User32.MessageBox(IntPtr.Zero,
+                "Woffle is already running — its window has been brought to the front.",
+                "Woffle", 0x00000040 /* MB_ICONINFORMATION */);
+        }
+        catch (Exception e)
+        {
+            WriteLog("single-instance message", e);
+        }
+
+        Dispatcher.UIThread.Post(() => desktop.Shutdown());
+        return false;
+    }
+
+    /// <summary>Listens for "show yourself" signals from second launches.</summary>
+    private void StartShowSignalListener()
+    {
+        try
+        {
+            _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\Woffle.ShowWindow");
+        }
+        catch (PlatformNotSupportedException e)
+        {
+            // Named kernel objects are Windows-only. The show-signal is a nicety; the
+            // single-instance mutex already enforces exclusivity on Windows, so skip the
+            // listener rather than fail to launch anywhere else.
+            WriteLog("show signal unavailable", e);
+            return;
+        }
+
+        _signalThread = new Thread(() =>
+        {
+            try
+            {
+                while (_showSignal.WaitOne())
+                {
+                    try
+                    {
+                        Dispatcher.UIThread.Post(ShowMain);
+                    }
+                    catch (Exception e)
+                    {
+                        WriteLog("show signal", e);
+                    }
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Normal: shutdown disposed the handle.
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "Woffle show signal",
+        };
+        _signalThread.Start();
+    }
+
+    /// <summary>Appends a line to the crash log, creating it if needed.</summary>
+    private static void WriteLog(string phase, Exception? error)
+    {
+        try
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Woffle");
+            Directory.CreateDirectory(directory);
+
+            var line = error is null
+                ? $"[{DateTimeOffset.Now:O}] {phase}"
+                : $"[{DateTimeOffset.Now:O}] {phase}: {error}";
+
+            var path = Path.Combine(directory, "crash.log");
+            if (File.Exists(path) && new FileInfo(path).Length > 1_000_000)
+            {
+                File.WriteAllText(path, string.Empty);
+            }
+
+            File.AppendAllText(path, line + Environment.NewLine);
+        }
+        catch
+        {
+            // Logging must never take the app down.
+        }
     }
 
     // Tray callbacks arrive on a worker thread, not the UI thread. Touching windows from
@@ -107,5 +242,12 @@ public partial class App : Application, IDisposable
         _main.Show();
         _main.WindowState = WindowState.Normal;
         _main.Activate();
+    }
+
+    /// <summary>Win32 message box, callable before any Avalonia window exists.</summary>
+    private static partial class User32
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
     }
 }
