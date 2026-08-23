@@ -93,6 +93,9 @@ public sealed class Composition : IAsyncDisposable
                 clock: null,
                 removeFillers: settings.Data.RemoveFillers,
                 simplifyArithmetic: settings.Data.SimplifyArithmetic,
+                smartCleaner: settings.Data.SmartClean
+                    ? new OllamaCleaner(settings.Data.SmartCleanModel)
+                    : null,
                 idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero);
 
             // Persisted mic choice + boost apply live, without a restart.

@@ -130,6 +130,12 @@ public sealed class SettingsWindow : Window
                     Toggle("Simplify corrections (three minus one potatoes → 2 potatoes)",
                         _settings.Data.SimplifyArithmetic,
                         v => Save(_settings.Data with { SimplifyArithmetic = v })),
+                    Toggle("Smart cleanup (local AI via Ollama)",
+                        _settings.Data.SmartClean,
+                        v => Save(_settings.Data with { SmartClean = v })),
+                    Note("Smart cleanup uses the language model already running in Ollama on this "
+                        + "PC and adds roughly a second per dictation. If Ollama is not running, "
+                        + "the built-in cleaner is used instead."),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
                     Toggle("Keep running in the notification area when I close the window",

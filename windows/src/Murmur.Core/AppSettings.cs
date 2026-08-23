@@ -43,6 +43,19 @@ public sealed record SettingsData
     /// </summary>
     public bool SimplifyArithmetic { get; init; } = true;
 
+    /// <summary>
+    /// Whether to run the optional local-AI cleanup pass (Ollama on this PC) over the
+    /// finished transcript. Off by default: it adds ~a second per dictation and needs
+    /// Ollama running; the deterministic passes are always the baseline.
+    /// </summary>
+    public bool SmartClean { get; init; }
+
+    /// <summary>
+    /// The Ollama model tag for the smart pass, or null/empty to auto-pick the first
+    /// installed model.
+    /// </summary>
+    public string? SmartCleanModel { get; init; }
+
     /// <summary>Whether to keep a transcript history.</summary>
     public bool KeepHistory { get; init; } = true;
 

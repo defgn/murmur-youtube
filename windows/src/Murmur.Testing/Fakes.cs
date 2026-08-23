@@ -169,6 +169,26 @@ public sealed class FakeTranscriber : ITranscriber
 }
 
 /// <summary>
+/// A smart cleaner you program from a test: it either returns its canned polish or
+/// simulates an unavailable service by returning null.
+/// </summary>
+public sealed class FakeSmartCleaner : ISmartCleaner
+{
+    /// <summary>What <see cref="CleanAsync"/> returns; null simulates an unavailable service.</summary>
+    public string? Result { get; set; }
+
+    /// <summary>How many times the engine asked.</summary>
+    public int Calls { get; private set; }
+
+    /// <inheritdoc />
+    public Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+    {
+        Calls++;
+        return Task.FromResult(Result);
+    }
+}
+
+/// <summary>
 /// Records what would have been typed.
 /// </summary>
 /// <remarks>

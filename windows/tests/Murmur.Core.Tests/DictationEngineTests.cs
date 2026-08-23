@@ -287,6 +287,52 @@ public sealed class DictationEngineTests
         injector.Injected[0].ShouldBe("can I have 2 potatoes");
     }
 
+    [Fact]
+    public async Task Smart_cleaner_polishes_the_final_transcript()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello world");
+        var injector = new RecordingTextInjector();
+        var cleaner = new FakeSmartCleaner { Result = "Hello, world." };
+        var completed = new List<DictationResult>();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector,
+            () => [], new FakeClock(), removeFillers: true, smartCleaner: cleaner);
+        engine.Completed += (_, result) => completed.Add(result);
+
+        await DictateAsync(hotkey, engine);
+
+        cleaner.Calls.ShouldBe(1);
+        completed.ShouldHaveSingleItem();
+        completed[0].Text.ShouldBe("Hello, world.");
+        injector.Injected[0].ShouldBe("Hello, world.");
+    }
+
+    [Fact]
+    public async Task Smart_cleaner_unavailable_falls_back_and_notifies_once()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello world");
+        var injector = new RecordingTextInjector();
+        var cleaner = new FakeSmartCleaner { Result = null };
+        var notices = new List<string>();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector,
+            () => [], new FakeClock(), removeFillers: true, smartCleaner: cleaner);
+        engine.Notice += (_, message) => notices.Add(message);
+
+        await DictateAsync(hotkey, engine);
+        await DictateAsync(hotkey, engine);
+
+        // The deterministic text stands, and the failure is surfaced once, not every time.
+        var expected = new[] { "hello world", "hello world" };
+        injector.Injected.ShouldBe(expected);
+        notices.Count(m => m.Contains("Smart cleanup unavailable", StringComparison.OrdinalIgnoreCase))
+            .ShouldBe(1);
+    }
+
     /// <summary>
     /// The boundary is enforced by the compiler via CA1416, but this fails louder and names
     /// the reason: anything reachable from Core must run in CI on any platform.

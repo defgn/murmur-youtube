@@ -50,6 +50,8 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
     private readonly bool _removeFillers;
     private readonly bool _simplifyArithmetic;
+    private readonly ISmartCleaner? _smartCleaner;
+    private bool _smartCleanerWarned;
     private readonly TimeSpan _partialInterval;
     private readonly TimeSpan _idleUnloadTimeout;
     private CancellationTokenSource? _idleUnload;
@@ -110,6 +112,11 @@ public sealed class DictationEngine : IAsyncDisposable
     /// Whether to resolve spoken quantity corrections ("three potatoes no one potato no
     /// three minus one potatoes" → "2 potatoes"). Default true.
     /// </param>
+    /// <param name="smartCleaner">
+    /// Optional intent-aware cleanup pass (a local LLM via Ollama). Runs on the finished
+    /// transcript only, after the deterministic passes and before the dictionary. A null
+    /// result falls back to the deterministic text.
+    /// </param>
     /// <param name="partialInterval">
     /// How often the live preview refreshes while recording. Defaults to two seconds; tests
     /// pass something shorter.
@@ -127,6 +134,7 @@ public sealed class DictationEngine : IAsyncDisposable
         IClock? clock = null,
         bool removeFillers = true,
         bool simplifyArithmetic = true,
+        ISmartCleaner? smartCleaner = null,
         TimeSpan? partialInterval = null,
         TimeSpan idleUnloadTimeout = default)
     {
@@ -138,6 +146,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _clock = clock ?? SystemClock.Instance;
         _removeFillers = removeFillers;
         _simplifyArithmetic = simplifyArithmetic;
+        _smartCleaner = smartCleaner;
         _partialInterval = partialInterval ?? TimeSpan.FromSeconds(2);
         _idleUnloadTimeout = idleUnloadTimeout;
 
@@ -385,6 +394,28 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             raw = ArithmeticSimplifier.Simplify(raw);
             if (string.IsNullOrWhiteSpace(raw)) return;
+        }
+
+        // The optional local-AI pass polishes everything the deterministic passes cannot
+        // name. It never runs on the live preview (that would spam the model every two
+        // seconds) and its failure is a silent fallback to the text above — except for a
+        // one-time notice, so a dead Ollama does not look like a quiet bug.
+        if (_smartCleaner is not null)
+        {
+            var polished = await _smartCleaner.CleanAsync(raw, CancellationToken.None).ConfigureAwait(false);
+            if (polished is null)
+            {
+                if (!_smartCleanerWarned)
+                {
+                    _smartCleanerWarned = true;
+                    Notice?.Invoke(this,
+                        "Smart cleanup unavailable (is Ollama running?) — used the built-in cleaner.");
+                }
+            }
+            else
+            {
+                raw = polished;
+            }
         }
 
         // The dictionary runs last and unconditionally. Biasing only raises the odds of the
