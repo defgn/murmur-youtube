@@ -48,25 +48,23 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public void Record_toggles_the_lamp_and_the_meter_together()
+    public void Record_toggles_the_pill_and_status_together()
     {
         var window = new MainWindow();
         window.Show();
 
         window.IsRecording.ShouldBeFalse();
-        window.RecordLamp.IsLit.ShouldBeFalse();
-        window.Meter.IsActive.ShouldBeFalse();
+        window.StatusText.Text.ShouldBe("Ready");
 
         window.ToggleRecording();
 
         window.IsRecording.ShouldBeTrue();
-        window.RecordLamp.IsLit.ShouldBeTrue("the record lamp must follow the transport");
-        window.Meter.IsActive.ShouldBeTrue("the meter lamp must follow the transport");
+        window.StatusText.Text.ShouldBe("Recording", "the status chip must follow the transport");
 
         window.ToggleRecording();
 
-        window.RecordLamp.IsLit.ShouldBeFalse();
-        window.Meter.IsActive.ShouldBeFalse();
+        window.StatusText.Text.ShouldBe("Ready");
+        window.IsRecording.ShouldBeFalse();
     }
 
     [AvaloniaFact]
@@ -80,7 +78,7 @@ public sealed class MainWindowTests
     }
 }
 
-/// <summary>The individual pieces of equipment.</summary>
+/// <summary>The individual pieces of equipment (kept for compatibility).</summary>
 public sealed class EquipmentTests
 {
     [AvaloniaFact]
@@ -139,7 +137,7 @@ public sealed class EquipmentTests
 }
 
 /// <summary>
-/// Guards the two colour rules the design system calls non-negotiable.
+/// Guards the colour rules the design system calls non-negotiable.
 /// </summary>
 /// <remarks>
 /// These are the sort of rule that erodes one reasonable-looking commit at a time. Asserting
@@ -148,22 +146,25 @@ public sealed class EquipmentTests
 public sealed class DesignSystemTests
 {
     [AvaloniaFact]
-    public void Record_red_is_the_lacquered_value_not_a_bright_one()
+    public void Record_red_is_the_only_red_in_the_app()
     {
         var red = Tokens.Colors.Record;
-        red.R.ShouldBe((byte)0xC8);
-        red.G.ShouldBe((byte)0x34);
-        red.B.ShouldBe((byte)0x2A);
+        red.ShouldBe(Avalonia.Media.Color.FromRgb(0xE1, 0x1D, 0x48));
+
+        // Nothing else that paints UI chrome is allowed to be red.
+        red.ShouldNotBe(Tokens.Colors.Accent);
+        red.ShouldNotBe(Tokens.Colors.Brand);
     }
 
     [AvaloniaFact]
-    public void Radii_stay_small_enough_to_read_as_equipment()
+    public void Radii_are_soft_and_modern()
     {
-        // Anything softer starts reading as software rather than a machined object.
-        Tokens.Radius.Chip.ShouldBeLessThanOrEqualTo(2);
-        Tokens.Radius.Control.ShouldBeLessThanOrEqualTo(3);
-        Tokens.Radius.Panel.ShouldBeLessThanOrEqualTo(5);
-        Tokens.Radius.Window.ShouldBeLessThanOrEqualTo(8);
+        // The modern face is rounded, not machined. Anything sharper reads as a different
+        // design language entirely.
+        Tokens.Radius.Chip.ShouldBeGreaterThanOrEqualTo(8);
+        Tokens.Radius.Control.ShouldBeGreaterThanOrEqualTo(12);
+        Tokens.Radius.Panel.ShouldBeGreaterThanOrEqualTo(20);
+        Tokens.Radius.Window.ShouldBeGreaterThanOrEqualTo(28);
     }
 
     [AvaloniaFact]
@@ -179,12 +180,9 @@ public sealed class DesignSystemTests
     }
 
     [AvaloniaFact]
-    public void Needle_ballistics_match_a_real_vu_movement()
+    public void Brand_is_the_indigo_violet_of_the_mark()
     {
-        // ~300 ms to reach a step, a slower fall, and a slight overshoot. Without these the
-        // needle reads as a progress bar with a stick on it.
-        Tokens.Motion.NeedleAttackSeconds.ShouldBe(0.30);
-        Tokens.Motion.NeedleReleaseSeconds.ShouldBeGreaterThan(Tokens.Motion.NeedleAttackSeconds);
-        Tokens.Motion.NeedleOvershoot.ShouldBeGreaterThan(0);
+        // The speech-bubble logo is this colour everywhere — window, tray, UI accents.
+        Tokens.Colors.Brand.ShouldBe(Avalonia.Media.Color.FromRgb(0x6D, 0x5D, 0xF6));
     }
 }

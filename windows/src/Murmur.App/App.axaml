@@ -1,9 +1,9 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Murmur.App.App"
-             RequestedThemeVariant="Default">
-  <!-- Default, not a fixed variant: the app follows the system, which is what picks
-       between the silver face and the black face. -->
+             RequestedThemeVariant="Light">
+  <!-- Fixed light, deliberately: the warm paper look is the product, not a theme preference.
+       Controls (sliders, toggles, text fields) therefore always render their light face. -->
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>

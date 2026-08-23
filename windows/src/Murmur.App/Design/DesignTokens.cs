@@ -9,24 +9,20 @@ namespace Murmur.App.Design;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A direct port of <c>DesignSystem.swift</c> — same names, same values, so the two platforms
-/// stay recognisably one product. Direction: 1980s portable field recorders and cassette
-/// decks. Equipment, not theme.
+/// Direction: warm, calm, modern — cream surfaces, glass cards, a single dark hero pill,
+/// and an indigo-violet brand mark. The brief is a modern dictation tool (Wispr Flow's
+/// direction), not retro equipment.
 /// </para>
 /// <para>
 /// <b>Views must not contain literal values.</b> If a control needs a number that isn't here,
 /// add the token rather than inlining it.
 /// </para>
-/// <para>Two rules that are not negotiable:</para>
+/// <para>Rules that are not negotiable:</para>
 /// <list type="bullet">
 /// <item><b>Red means recording.</b> Nothing else in the app is red.</item>
-/// <item><b>Amber and green are instrumentation only</b> — level meters, never UI chrome.</item>
+/// <item><b>The hero pill is the app.</b> One dark pill, the whole gesture.</item>
+/// <item><b>Radii are soft.</b> 8–28 px; nothing machined.</item>
 /// </list>
-/// <para>
-/// Explicitly ruled out: neon, vaporwave, synthwave, purple/pink gradients, glowing text,
-/// chrome lettering, grid horizons. There are <b>no gradients anywhere</b>; depth comes from
-/// flat panels, hairline bevels and procedurally-drawn brushed grain.
-/// </para>
 /// </remarks>
 public static class Tokens
 {
@@ -34,90 +30,124 @@ public static class Tokens
     /// Whether the black-face palette is in use.
     /// </summary>
     /// <remarks>
-    /// Decks shipped in two finishes, so the app does too: <b>silver face</b> (brushed
-    /// aluminium, the Sony TC-D5) in light, <b>black face</b> (matte, the Marantz PMD) in dark.
+    /// The modern face is light cream in both themes — the warm paper look is the product,
+    /// not a theme preference. Keeping the hook lets a future dark face slot in without
+    /// touching the views.
     /// </remarks>
-    public static bool IsBlackFace =>
-        Application.Current?.ActualThemeVariant == ThemeVariant.Dark;
+    public static bool IsBlackFace => false;
 
     // ---- Colour ----
 
-    /// <summary>Surfaces, from the outer body inward.</summary>
+    /// <summary>Surfaces and ink, from the warm paper outward.</summary>
     public static class Colors
     {
-        /// <summary>The outer body of the unit. Darkest surface; frames everything.</summary>
-        public static Color Chassis => Face(0x2A2825, 0x121110);
+        /// <summary>The window background. Warm paper.</summary>
+        public static Color Chassis => Face(0xF7F4EE, 0xF7F4EE);
 
-        /// <summary>The main working surface.</summary>
-        public static Color Panel => Face(0xB8B4AD, 0x2E2C29);
+        /// <summary>The deeper end of the background gradient.</summary>
+        public static Color ChassisDeep => Face(0xF1EDE4, 0xF1EDE4);
+
+        /// <summary>Cards and raised surfaces.</summary>
+        public static Color Panel => Face(0xFFFFFF, 0xFFFFFF);
 
         /// <summary>Top bevel highlight on a raised element.</summary>
-        public static Color PanelHighlight => Face(0xC9C5BE, 0x3C3936);
+        public static Color PanelHighlight => Face(0xFFFFFF, 0xFFFFFF);
 
         /// <summary>Bottom bevel shade on a raised element.</summary>
-        public static Color PanelShade => Face(0x9E9A93, 0x211F1D);
+        public static Color PanelShade => Face(0xEFE9DE, 0xEFE9DE);
 
-        /// <summary>Recessed wells, set into the panel.</summary>
-        public static Color Well => Face(0x6E6A64, 0x1A1917);
+        /// <summary>Recessed wells, set into the paper.</summary>
+        public static Color Well => Face(0xF3EFE6, 0xF3EFE6);
 
-        /// <summary>The dark readout window of a tape deck.</summary>
-        public static Color Deck => Face(0x38352F, 0x151412);
+        /// <summary>Search rows and input beds.</summary>
+        public static Color Deck => Face(0xF6F2E9, 0xF6F2E9);
 
-        /// <summary>Button caps and other moulded plastic.</summary>
-        public static Color Cap => Face(0xE8E3D8, 0x35322E);
+        /// <summary>Button caps.</summary>
+        public static Color Cap => Face(0xFFFFFF, 0xFFFFFF);
 
-        /// <summary>The hard line where two panels meet.</summary>
-        public static Color Seam => Face(0x6B6862, 0x000000);
+        /// <summary>The hairline between surfaces.</summary>
+        public static Color Seam => Face(0xE5DCCB, 0xE5DCCB);
 
         /// <summary>Primary readable text.</summary>
-        public static Color Ink => Face(0x1C1A17, 0xE4DED0);
+        public static Color Ink => Face(0x23201C, 0x23201C);
 
         /// <summary>Supporting text.</summary>
-        public static Color InkSecondary => Face(0x514D47, 0x9A948A);
+        public static Color InkSecondary => Face(0x8D8271, 0x8D8271);
 
-        /// <summary>Silkscreened labels printed onto the panel.</summary>
-        public static Color Silkscreen => Face(0x3A3630, 0xB0AA9E);
+        /// <summary>Small-caps labels.</summary>
+        public static Color Silkscreen => Face(0xB0A594, 0xB0A594);
 
-        /// <summary>Text on a dark readout well, regardless of face.</summary>
-        public static Color InkOnDeck => Rgb(0xD8D2C4);
+        /// <summary>Text on a light surface, read as primary.</summary>
+        public static Color InkOnDeck => Face(0x23201C, 0x23201C);
 
-        /// <summary>The record lamp. Lacquered, not fluorescent. The only red in the app.</summary>
-        public static Color Record => Rgb(0xC8342A);
+        /// <summary>The record state. The only red in the app.</summary>
+        public static Color Record => Rgb(0xE11D48);
 
-        /// <summary>The record lamp unlit — a dark lens, not an absence.</summary>
-        public static Color RecordIdle => Face(0x7A4A45, 0x4A2724);
+        /// <summary>The record state idle — a soft rose, not a dark lens.</summary>
+        public static Color RecordIdle => Face(0xF4C6CF, 0xF4C6CF);
 
-        /// <summary>A selected row. The panel lifts rather than tints.</summary>
-        public static Color Selection => Face(0xCDC8C0, 0x3A3733);
+        /// <summary>A selected row. The card lifts rather than tints.</summary>
+        public static Color Selection => Face(0xF1EBDF, 0xF1EBDF);
 
         /// <summary>Edge on a selected or focused element.</summary>
-        public static Color SelectionEdge => Face(0x8A857D, 0x585349);
+        public static Color SelectionEdge => Face(0xC9BCA6, 0xC9BCA6);
 
         /// <summary>Keyboard focus ring. Reads without relying on colour.</summary>
-        public static Color FocusRing => Face(0x6B665E, 0x726C61);
+        public static Color FocusRing => Rgb(0x6D5DF6);
 
         /// <summary>Row under the pointer, before selection.</summary>
-        public static Color Hover => Face(0xC2BDB6, 0x343130);
+        public static Color Hover => Face(0xF5F0E6, 0xF5F0E6);
 
-        // Instrumentation only. Never use these for UI chrome.
+        // The Woffle brand. The speech-bubble mark is this colour everywhere.
+        /// <summary>The brand indigo-violet of the Woffle mark.</summary>
+        public static Color Brand => Rgb(0x6D5DF6);
+
+        /// <summary>Terracotta accent — the active tab underline.</summary>
+        public static Color Accent => Rgb(0xC05B34);
+
+        /// <summary>Sage — the "ready" status dot.</summary>
+        public static Color Success => Rgb(0x4D7C5F);
+
+        /// <summary>The dark hero pill.</summary>
+        public static Color DarkPill => Rgb(0x24211C);
+
+        /// <summary>The hero pill while recording — dark rose.</summary>
+        public static Color RecordPill => Rgb(0x7A1F2E);
+
+        /// <summary>Waveform bars inside the pill while recording.</summary>
+        public static Color RecordBar => Rgb(0xFDA4AF);
+
+        /// <summary>The hero pill while pressed — slightly deeper.</summary>
+        public static Color DarkPillPressed => Rgb(0x1A1815);
+
+        /// <summary>The hero pill while pressed during recording.</summary>
+        public static Color RecordPillPressed => Rgb(0x671A26);
+
+        /// <summary>Text on the dark hero pill.</summary>
+        public static Color PillInk => Rgb(0xFAF7F1);
+
+        /// <summary>Glass card fill — white at 65%.</summary>
+        public static Color Glass => Color.FromArgb(0xA6, 0xFF, 0xFF, 0xFF);
+
+        // Instrumentation. Kept for the VU meter control; not used in the modern UI.
 
         /// <summary>Classic cream VU face.</summary>
-        public static Color MeterFace => Rgb(0xD8CFB4);
+        public static Color MeterFace => Rgb(0xF3EFE6);
 
         /// <summary>The amber lamp behind a VU face.</summary>
         public static Color MeterLamp => Rgb(0xE8B860);
 
         /// <summary>Needle and scale printing.</summary>
-        public static Color MeterNeedle => Rgb(0x1C1A17);
+        public static Color MeterNeedle => Rgb(0x23201C);
 
         /// <summary>Nominal level.</summary>
-        public static Color MeterGreen => Rgb(0x6F9E45);
+        public static Color MeterGreen => Rgb(0x4D7C5F);
 
         /// <summary>Approaching peak.</summary>
-        public static Color MeterAmber => Rgb(0xD39A2E);
+        public static Color MeterAmber => Rgb(0xC9922E);
 
         /// <summary>Over.</summary>
-        public static Color MeterRed => Rgb(0xC0392B);
+        public static Color MeterRed => Rgb(0xE11D48);
 
         private static Color Rgb(uint hex) => Color.FromRgb(
             (byte)((hex >> 16) & 0xFF), (byte)((hex >> 8) & 0xFF), (byte)(hex & 0xFF));
@@ -131,8 +161,26 @@ public static class Tokens
         /// <inheritdoc cref="Colors.Chassis"/>
         public static IBrush Chassis => new SolidColorBrush(Colors.Chassis);
 
+        /// <summary>The warm paper gradient behind the whole window.</summary>
+        public static IBrush ChassisGradient => new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(Colors.Chassis, 0),
+                new GradientStop(Colors.ChassisDeep, 1),
+            },
+        };
+
         /// <inheritdoc cref="Colors.Panel"/>
         public static IBrush Panel => new SolidColorBrush(Colors.Panel);
+
+        /// <summary>Glass card surface.</summary>
+        public static IBrush Glass => new SolidColorBrush(Colors.Glass);
+
+        /// <summary>Glass card surface, more opaque — settings cards.</summary>
+        public static IBrush GlassStrong => new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
 
         /// <inheritdoc cref="Colors.Well"/>
         public static IBrush Well => new SolidColorBrush(Colors.Well);
@@ -155,6 +203,33 @@ public static class Tokens
         /// <inheritdoc cref="Colors.Record"/>
         public static IBrush Record => new SolidColorBrush(Colors.Record);
 
+        /// <inheritdoc cref="Colors.Brand"/>
+        public static IBrush Brand => new SolidColorBrush(Colors.Brand);
+
+        /// <inheritdoc cref="Colors.Accent"/>
+        public static IBrush Accent => new SolidColorBrush(Colors.Accent);
+
+        /// <inheritdoc cref="Colors.Success"/>
+        public static IBrush Success => new SolidColorBrush(Colors.Success);
+
+        /// <inheritdoc cref="Colors.DarkPill"/>
+        public static IBrush DarkPill => new SolidColorBrush(Colors.DarkPill);
+
+        /// <inheritdoc cref="Colors.RecordPill"/>
+        public static IBrush RecordPill => new SolidColorBrush(Colors.RecordPill);
+
+        /// <inheritdoc cref="Colors.RecordBar"/>
+        public static IBrush RecordBar => new SolidColorBrush(Colors.RecordBar);
+
+        /// <inheritdoc cref="Colors.DarkPillPressed"/>
+        public static IBrush DarkPillPressed => new SolidColorBrush(Colors.DarkPillPressed);
+
+        /// <inheritdoc cref="Colors.RecordPillPressed"/>
+        public static IBrush RecordPillPressed => new SolidColorBrush(Colors.RecordPillPressed);
+
+        /// <inheritdoc cref="Colors.PillInk"/>
+        public static IBrush PillInk => new SolidColorBrush(Colors.PillInk);
+
         /// <inheritdoc cref="Colors.MeterFace"/>
         public static IBrush MeterFace => new SolidColorBrush(Colors.MeterFace);
     }
@@ -162,45 +237,47 @@ public static class Tokens
     // ---- Type ----
 
     /// <summary>
-    /// A neutral grotesque, the way equipment was labelled.
+    /// A neutral, modern sans — the Windows UI voice.
     /// </summary>
-    /// <remarks>
-    /// Helvetica on macOS, Arial on Windows — the closest widely-installed grotesques. A
-    /// humanist UI font has rounded terminals that fight the silkscreen look.
-    /// </remarks>
     public static class Fonts
     {
-        /// <summary>The panel typeface.</summary>
+        /// <summary>The UI typeface.</summary>
         public static FontFamily Grotesque { get; } =
-            new("Helvetica Neue, Helvetica, Arial, sans-serif");
+            new("Segoe UI Variable Text, Segoe UI, Inter, sans-serif");
 
         /// <summary>Readouts and timings. Monospaced so digits don't shift as they tick.</summary>
         public static FontFamily Mono { get; } =
-            new("Consolas, Menlo, SF Mono, monospace");
+            new("Cascadia Mono, Consolas, monospace");
 
-        /// <summary>Panel labels: small, uppercase, tightly tracked.</summary>
-        public const double Silkscreen = 9;
+        /// <summary>Small-caps labels.</summary>
+        public const double Silkscreen = 11;
 
-        /// <summary>A larger silkscreen label, for section headers.</summary>
-        public const double SilkscreenLarge = 11;
+        /// <summary>A larger small-caps label, for section headers.</summary>
+        public const double SilkscreenLarge = 13;
 
         /// <summary>Caption text.</summary>
-        public const double Caption = 10;
+        public const double Caption = 11.5;
 
         /// <summary>Secondary label text.</summary>
-        public const double Label = 11;
+        public const double Label = 12.5;
 
         /// <summary>Body text.</summary>
-        public const double Body = 13;
+        public const double Body = 15;
+
+        /// <summary>Slightly larger body text, for the transcript cards.</summary>
+        public const double BodyLarge = 15.5;
 
         /// <summary>Section titles.</summary>
-        public const double Title = 17;
+        public const double Title = 19;
+
+        /// <summary>The hero pill label.</summary>
+        public const double Pill = 17;
 
         /// <summary>The big transport counter.</summary>
         public const double CounterLarge = 26;
 
-        /// <summary>Letter spacing for silkscreen labels, in device-independent pixels.</summary>
-        public const double SilkscreenTracking = 1.1;
+        /// <summary>Letter spacing for small-caps labels, in device-independent pixels.</summary>
+        public const double SilkscreenTracking = 0.4;
     }
 
     // ---- Geometry ----
@@ -231,27 +308,30 @@ public static class Tokens
     }
 
     /// <summary>
-    /// Small by design. Equipment has hard edges; anything soft reads as software.
+    /// Soft by design. Modern surfaces are rounded; nothing is machined.
     /// </summary>
     public static class Radius
     {
         /// <summary>Seams and dividers — square.</summary>
         public const double None = 0;
 
-        /// <summary>Indicator chips, small lamps.</summary>
-        public const double Chip = 2;
+        /// <summary>Small chips, badges, dots.</summary>
+        public const double Chip = 8;
 
-        /// <summary>Button caps and controls.</summary>
-        public const double Control = 3;
+        /// <summary>Buttons and controls.</summary>
+        public const double Control = 12;
 
-        /// <summary>Recessed wells and grouped panels.</summary>
-        public const double Panel = 5;
+        /// <summary>Cards and wells.</summary>
+        public const double Panel = 20;
 
         /// <summary>The window itself.</summary>
-        public const double Window = 8;
+        public const double Window = 28;
+
+        /// <summary>Fully round — pills and the hero.</summary>
+        public const double Pill = 999;
     }
 
-    /// <summary>Line weights. All 1 — a machined edge reads the same at any density.</summary>
+    /// <summary>Line weights.</summary>
     public static class Border
     {
         /// <summary>A drawn hairline.</summary>
@@ -267,8 +347,8 @@ public static class Tokens
     // ---- Material ----
 
     /// <summary>
-    /// The physical detail that makes a panel read as a machined object: metal grain,
-    /// fasteners, ventilation, lamps, key travel, needle sweep.
+    /// Sizes for the remaining physical controls (the VU meter and friends are kept for
+    /// compatibility with the equipment controls; the modern UI does not use them).
     /// </summary>
     public static class Material
     {
@@ -294,7 +374,7 @@ public static class Tokens
         public const double VentSlotGap = 4;
 
         /// <summary>Indicator lamp diameter.</summary>
-        public const double LampSize = 7;
+        public const double LampSize = 8;
 
         /// <summary>A lit lamp's lens highlight — a specular dot, not a bloom.</summary>
         public const double LampSpecular = 0.45;
@@ -303,13 +383,13 @@ public static class Tokens
         public const double LampUnlitOpacity = 0.22;
 
         /// <summary>Transport key height.</summary>
-        public const double KeyHeight = 34;
+        public const double KeyHeight = 44;
 
         /// <summary>Minimum transport key width.</summary>
-        public const double KeyMinWidth = 52;
+        public const double KeyMinWidth = 64;
 
         /// <summary>How far a key sinks when pressed.</summary>
-        public const double KeyTravel = 1.5;
+        public const double KeyTravel = 1;
 
         /// <summary>Total sweep of the VU needle, in degrees, centred on vertical.</summary>
         public const double NeedleSweepDegrees = 96;
@@ -319,32 +399,45 @@ public static class Tokens
 
         /// <summary>Where 0 VU sits along the scale, 0…1. The red zone begins here.</summary>
         public const double MeterZeroPoint = 0.72;
+
+        /// <summary>Number of waveform bars in the hero pill.</summary>
+        public const int WaveformBars = 7;
+
+        /// <summary>Waveform bar width.</summary>
+        public const double WaveformBarWidth = 3.5;
+
+        /// <summary>Waveform bar corner radius.</summary>
+        public const double WaveformBarRadius = 2;
+
+        /// <summary>Height of the hero pill.</summary>
+        public const double HeroPillHeight = 68;
+
+        /// <summary>Minimum width of the hero pill.</summary>
+        public const double HeroPillMinWidth = 300;
     }
 
     // ---- Motion ----
 
-    /// <summary>Mechanical, not bouncy. A key travels and stops; it doesn't spring.</summary>
+    /// <summary>Soft and quick; modern surfaces settle rather than snap.</summary>
     public static class Motion
     {
-        /// <summary>Key travel down. Fast enough to feel like contact.</summary>
-        public static TimeSpan Press { get; } = TimeSpan.FromMilliseconds(60);
+        /// <summary>Press feedback.</summary>
+        public static TimeSpan Press { get; } = TimeSpan.FromMilliseconds(80);
 
-        /// <summary>Key travel up.</summary>
-        public static TimeSpan Release { get; } = TimeSpan.FromMilliseconds(120);
+        /// <summary>Release feedback.</summary>
+        public static TimeSpan Release { get; } = TimeSpan.FromMilliseconds(140);
 
         /// <summary>Panel and view changes.</summary>
-        public static TimeSpan Panel { get; } = TimeSpan.FromMilliseconds(180);
+        public static TimeSpan Panel { get; } = TimeSpan.FromMilliseconds(220);
 
-        /// <summary>The record lamp coming on — instant, like a filament.</summary>
+        /// <summary>The record state coming on — instant, like a filament.</summary>
         public static TimeSpan Lamp { get; } = TimeSpan.FromMilliseconds(80);
 
         /// <summary>
         /// VU ballistics: seconds to reach a step going up.
         /// </summary>
         /// <remarks>
-        /// A real VU movement reaches 99% of a step in ~300 ms and overshoots slightly. That
-        /// lag <i>is</i> the instrument's character — a needle that tracks the signal exactly
-        /// reads as a progress bar with a stick on it.
+        /// Kept for the VU meter control, which is no longer part of the modern UI.
         /// </remarks>
         public const double NeedleAttackSeconds = 0.30;
 

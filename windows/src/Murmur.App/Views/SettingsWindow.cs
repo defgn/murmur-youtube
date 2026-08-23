@@ -1,8 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
 using Murmur.Speech;
@@ -18,15 +18,15 @@ public sealed class SettingsWindow : Window
     /// <remarks>
     /// Right Alt is included but listed last and carries a warning: on German, Polish, UK,
     /// Nordic and most Latin-American layouts it is AltGr, and binding push-to-talk there
-    /// breaks typing <c>@</c>, <c>€</c>, <c>\</c> and <c>|</c>.
+    /// breaks typing <c>@</c>, <c>€</c>, <c>\\</c> and <c>|</c>.
     /// </remarks>
     private static readonly (int Key, string Label, string? Warning)[] Keys =
     [
-        (0xA3, "RIGHT CTRL", null),
-        (0xA1, "RIGHT SHIFT", null),
-        (0x14, "CAPS LOCK", null),
+        (0xA3, "Right Ctrl", null),
+        (0xA1, "Right Shift", null),
+        (0x14, "Caps Lock", null),
         (0x7C, "F13", null),
-        (0xA5, "RIGHT ALT", "Right Alt is AltGr on many European layouts — binding it here "
+        (0xA5, "Right Alt", "Right Alt is AltGr on many European layouts — binding it here "
                           + "will interfere with typing @, €, \\ and |."),
     ];
 
@@ -48,10 +48,10 @@ public sealed class SettingsWindow : Window
         _settings = composition.Settings;
 
         Title = "Woffle Settings";
-        Width = 540;
+        Width = 560;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
-        Background = Tokens.Brushes.Chassis;
+        Background = Tokens.Brushes.ChassisGradient;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         _keyRow = new StackPanel
@@ -64,14 +64,14 @@ public sealed class SettingsWindow : Window
         {
             FontFamily = Tokens.Fonts.Grotesque,
             FontSize = Tokens.Fonts.Label,
-            Foreground = new SolidColorBrush(Tokens.Colors.MeterAmber),
+            Foreground = new SolidColorBrush(Tokens.Colors.Accent),
             TextWrapping = TextWrapping.Wrap,
             IsVisible = false,
         };
 
         foreach (var (key, label, warning) in Keys)
         {
-            var button = new TransportKey { Content = label, EngagedColor = Tokens.Colors.Ink };
+            var button = Selectable(label);
             button.Click += (_, _) => SelectKey(key, warning);
             _keyRow.Children.Add(button);
         }
@@ -96,26 +96,29 @@ public sealed class SettingsWindow : Window
     private StackPanel BuildContent() => new StackPanel
     {
         Margin = new Thickness(Tokens.Space.Panel),
-        Spacing = Tokens.Space.Wide,
+        Spacing = Tokens.Space.Roomy,
         Children =
         {
-            Section("PUSH TO TALK", new StackPanel
+            Section("Push to talk", new StackPanel
             {
                 Spacing = Tokens.Space.Snug,
                 Children =
                 {
-                    _keyRow,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = Tokens.Space.Snug,
+                        Children = { _keyRow },
+                    },
                     _keyWarning,
                     Note("Hold this key anywhere to dictate. The key is passed through to the "
                        + "focused app rather than swallowed, so it never gets stuck down."),
                 },
             }),
 
-            Section("MICROPHONE", BuildMicrophoneSection()),
+            Section("Microphone", BuildMicrophoneSection()),
 
-            Section("MODEL", BuildModelSection()),
-
-            Section("BEHAVIOUR", new StackPanel
+            Section("Behaviour", new StackPanel
             {
                 Spacing = Tokens.Space.Snug,
                 Children =
@@ -128,6 +131,8 @@ public sealed class SettingsWindow : Window
                         v => Save(_settings.Data with { KeepHistory = v })),
                 },
             }),
+
+            Section("Model", BuildModelSection()),
         },
     };
 
@@ -146,17 +151,33 @@ public sealed class SettingsWindow : Window
         {
             FontFamily = Tokens.Fonts.Mono,
             FontSize = Tokens.Fonts.Label,
-            Foreground = Tokens.Brushes.InkOnDeck,
-            Text = $"Input boost: {_settings.Data.InputGain:0.0}x",
+            Foreground = Tokens.Brushes.Ink,
+            Text = $"{_settings.Data.InputGain:0.0}x",
             VerticalAlignment = VerticalAlignment.Center,
+            MinWidth = 42,
         };
+
+        var gainCaption = Panels.Caption("BOOST");
 
         gain.ValueChanged += (_, e) =>
         {
             var value = Math.Clamp((float)e.NewValue, MinGain, MaxGain);
-            gainLabel.Text = $"Input boost: {value:0.0}x";
+            gainLabel.Text = $"{value:0.0}x";
             _composition.ConfigureInput(_settings.Data.InputDeviceId, value);
         };
+
+        var gainRow = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
+            },
+            Children = { gainCaption, gain, gainLabel },
+        };
+        Grid.SetColumn(gain, 1);
+        Grid.SetColumn(gainLabel, 2);
 
         return new StackPanel
         {
@@ -165,12 +186,7 @@ public sealed class SettingsWindow : Window
             {
                 _micRow,
                 _micStatus,
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = Tokens.Space.Base,
-                    Children = { gain, gainLabel },
-                },
+                gainRow,
                 Note("Choose the microphone you actually speak into. The boost amplifies "
                    + "quiet microphones so you don't have to shout — applied live, no restart."),
             },
@@ -205,13 +221,7 @@ public sealed class SettingsWindow : Window
                 ? $"{device.Name}  (default)"
                 : device.Name;
 
-            var button = new TransportKey
-            {
-                Content = label,
-                EngagedColor = Tokens.Colors.Ink,
-                IsEngaged = isChosen,
-            };
-
+            var button = Selectable(label, isChosen);
             button.Click += (_, _) => SelectMicrophone(device.Id, device.Name);
             _micRow.Children.Add(button);
         }
@@ -221,14 +231,14 @@ public sealed class SettingsWindow : Window
     {
         foreach (var child in _micRow.Children)
         {
-            if (child is TransportKey key) key.IsEngaged = false;
+            if (child is Button key) SetSelectable(key, false);
         }
 
         foreach (var child in _micRow.Children)
         {
-            if (child is TransportKey key && key.Content is string content && content.StartsWith(deviceName, StringComparison.Ordinal))
+            if (child is Button key && key.Content is string content && content.StartsWith(deviceName, StringComparison.Ordinal))
             {
-                key.IsEngaged = true;
+                SetSelectable(key, true);
                 break;
             }
         }
@@ -248,10 +258,11 @@ public sealed class SettingsWindow : Window
             Spacing = Tokens.Space.Snug,
             Children =
             {
-                new Lamp
+                new Ellipse
                 {
-                    IsLit = found,
-                    LampColor = found ? Tokens.Colors.MeterGreen : Tokens.Colors.MeterAmber,
+                    Width = 8,
+                    Height = 8,
+                    Fill = found ? Tokens.Brushes.Success : new SolidColorBrush(Tokens.Colors.MeterAmber),
                     VerticalAlignment = VerticalAlignment.Center,
                 },
                 new TextBlock
@@ -269,7 +280,7 @@ public sealed class SettingsWindow : Window
             // Showing the resolved path matters: "model not found" is unactionable without
             // knowing which directory was actually checked.
             ? Note($"Loaded from {located}")
-            : Note("Windows has no built-in speech engine equivalent to Apple's, so Murmur "
+            : Note("Windows has no built-in speech engine equivalent to Apple's, so Woffle "
                  + "cannot transcribe until the Parakeet model is downloaded (~661 MB). "
                  + "See docs/PARAKEET-WINDOWS.md. Expected in:\n"
                  + string.Join("\n", ParakeetTranscriber.DefaultSearchPaths()));
@@ -281,7 +292,7 @@ public sealed class SettingsWindow : Window
     {
         for (var i = 0; i < Keys.Length; i++)
         {
-            ((TransportKey)_keyRow.Children[i]).IsEngaged = Keys[i].Key == key;
+            SetSelectable((Button)_keyRow.Children[i], Keys[i].Key == key);
         }
 
         _keyWarning.Text = warning ?? string.Empty;
@@ -292,15 +303,23 @@ public sealed class SettingsWindow : Window
 
     private void Save(SettingsData data) => _settings.Update(data);
 
-    private static BrushedPanel Section(string label, Control content) => new BrushedPanel
+    /// <summary>A soft card holding one settings group.</summary>
+    private static Border Section(string title, Control content) => Panels.Card(new StackPanel
     {
-        Child = new StackPanel
+        Spacing = Tokens.Space.Base,
+        Children =
         {
-            Margin = new Thickness(Tokens.Space.Roomy),
-            Spacing = Tokens.Space.Base,
-            Children = { new Silkscreen { Text = label, IsLarge = true }, content },
+            new TextBlock
+            {
+                Text = title,
+                FontFamily = Tokens.Fonts.Grotesque,
+                FontSize = Tokens.Fonts.Body,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Tokens.Brushes.Ink,
+            },
+            content,
         },
-    };
+    }, strong: true);
 
     private static TextBlock Note(string text) => new()
     {
@@ -311,21 +330,55 @@ public sealed class SettingsWindow : Window
         TextWrapping = TextWrapping.Wrap,
     };
 
-    private static CheckBox Toggle(string label, bool value, Action<bool> onChange)
+    /// <summary>A labelled toggle switch, label left, switch right.</summary>
+    private static DockPanel Toggle(string label, bool value, Action<bool> onChange)
     {
-        var box = new CheckBox
+        var toggle = new ToggleSwitch
         {
             IsChecked = value,
-            Content = new TextBlock
-            {
-                Text = label,
-                FontFamily = Tokens.Fonts.Grotesque,
-                FontSize = Tokens.Fonts.Body,
-                Foreground = Tokens.Brushes.Ink,
-            },
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        box.IsCheckedChanged += (_, _) => onChange(box.IsChecked ?? false);
-        return box;
+        var row = new DockPanel
+        {
+            Margin = new Thickness(0, Tokens.Space.Tight, 0, Tokens.Space.Tight),
+        };
+
+        var text = new TextBlock
+        {
+            Text = label,
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Body,
+            Foreground = Tokens.Brushes.Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        row.Children.Add(text);
+
+        DockPanel.SetDock(toggle, Dock.Right);
+        row.Children.Add(toggle);
+
+        toggle.IsCheckedChanged += (_, _) => onChange(toggle.IsChecked ?? false);
+        return row;
+    }
+
+    /// <summary>A selectable option — the segmented buttons for keys and microphones.</summary>
+    private static Button Selectable(string label, bool engaged = false) => new()
+    {
+        Content = label,
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Label,
+        FontWeight = FontWeight.Medium,
+        Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug - Tokens.Space.Hair),
+        CornerRadius = new CornerRadius(Tokens.Radius.Control),
+        HorizontalAlignment = HorizontalAlignment.Left,
+    };
+
+    private static void SetSelectable(Button button, bool engaged)
+    {
+        button.Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary);
+        button.Background = engaged ? Tokens.Brushes.GlassStrong : Brushes.Transparent;
+        button.BorderBrush = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : new SolidColorBrush(Tokens.Colors.Seam);
+        button.BorderThickness = new Thickness(1);
     }
 }

@@ -2,13 +2,12 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Murmur.App.Controls;
 using Murmur.App.Design;
 
 namespace Murmur.App.Views;
 
 /// <summary>
-/// Shared panel furniture — search rows, footers, cards, buttons on a dark readout.
+/// Shared furniture — search rows, footers, cards, buttons, empty states.
 /// </summary>
 /// <remarks>
 /// Every value comes from <see cref="Tokens"/>. Factoring these out is what stops the same
@@ -17,13 +16,13 @@ namespace Murmur.App.Views;
 /// </remarks>
 internal static class Panels
 {
-    /// <summary>A search field styled for a dark readout well.</summary>
+    /// <summary>A search field styled for a light card.</summary>
     public static TextBox SearchBox(string placeholder) => new()
     {
         Watermark = placeholder,
         FontFamily = Tokens.Fonts.Grotesque,
         FontSize = Tokens.Fonts.Body,
-        Foreground = Tokens.Brushes.InkOnDeck,
+        Foreground = Tokens.Brushes.Ink,
         Background = Brushes.Transparent,
         BorderThickness = new Thickness(0),
         Padding = new Thickness(0),
@@ -45,7 +44,7 @@ internal static class Panels
 
         return new Border
         {
-            Background = Tokens.Brushes.Deck,
+            Background = Brushes.Transparent,
             Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
             BorderBrush = new SolidColorBrush(Tokens.Colors.Seam),
             BorderThickness = new Thickness(0, 0, 0, Tokens.Border.Seam),
@@ -63,7 +62,7 @@ internal static class Panels
 
         return new Border
         {
-            Background = Tokens.Brushes.Deck,
+            Background = Brushes.Transparent,
             Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
             BorderBrush = new SolidColorBrush(Tokens.Colors.Seam),
             BorderThickness = new Thickness(0, Tokens.Border.Seam, 0, 0),
@@ -71,30 +70,45 @@ internal static class Panels
         };
     }
 
-    /// <summary>A small outlined button for use on a dark readout.</summary>
-    public static Button DeckButton(string label) => new()
+    /// <summary>A soft, modern action button.</summary>
+    public static Button Button(string label) => new()
     {
         Content = label,
         FontFamily = Tokens.Fonts.Grotesque,
-        FontSize = Tokens.Fonts.Silkscreen,
+        FontSize = Tokens.Fonts.Label,
         FontWeight = FontWeight.Medium,
-        Foreground = new SolidColorBrush(Tokens.Colors.InkOnDeck, 0.65),
-        Background = Brushes.Transparent,
-        BorderBrush = new SolidColorBrush(Tokens.Colors.InkOnDeck, 0.3),
+        Foreground = Tokens.Brushes.Ink,
+        Background = Tokens.Brushes.Panel,
+        BorderBrush = new SolidColorBrush(Tokens.Colors.Seam),
         BorderThickness = new Thickness(Tokens.Border.Hairline),
-        CornerRadius = new CornerRadius(Tokens.Radius.Chip),
-        Padding = new Thickness(Tokens.Space.Snug, Tokens.Space.Hair),
+        CornerRadius = new CornerRadius(Tokens.Radius.Control),
+        Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug - Tokens.Space.Hair),
+        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Right,
+    };
+
+    /// <summary>A rounded pill button for emphasis — the hero's family.</summary>
+    public static Button PillButton(string label) => new()
+    {
+        Content = label,
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Body,
+        FontWeight = FontWeight.SemiBold,
+        Foreground = Tokens.Brushes.PillInk,
+        Background = Tokens.Brushes.DarkPill,
+        CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+        Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Snug),
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>One row of content, on the dark readout surface.</summary>
-    public static Border DeckCard(Control content) => new()
+    /// <summary>One row of content on a glass card.</summary>
+    public static Border Card(Control content, bool strong = false) => new()
     {
-        Background = Tokens.Brushes.Deck,
+        Background = strong ? Tokens.Brushes.GlassStrong : Tokens.Brushes.Glass,
         CornerRadius = new CornerRadius(Tokens.Radius.Panel),
-        BorderBrush = new SolidColorBrush(Tokens.Colors.Seam),
+        BorderBrush = new SolidColorBrush(Color.FromArgb(0xD9, 0xFF, 0xFF, 0xFF)),
         BorderThickness = new Thickness(Tokens.Border.Hairline),
-        Padding = new Thickness(Tokens.Space.Base),
+        Padding = new Thickness(Tokens.Space.Roomy),
         Child = content,
     };
 
@@ -107,11 +121,13 @@ internal static class Panels
         Margin = new Thickness(0, Tokens.Space.Panel),
         Children =
         {
-            new Silkscreen
+            new TextBlock
             {
                 Text = label,
-                IsLarge = true,
-                Foreground = new SolidColorBrush(Tokens.Colors.InkOnDeck, 0.55),
+                FontFamily = Tokens.Fonts.Grotesque,
+                FontSize = Tokens.Fonts.Title,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary, 0.75),
                 HorizontalAlignment = HorizontalAlignment.Center,
             },
             new TextBlock
@@ -119,7 +135,7 @@ internal static class Panels
                 Text = detail,
                 FontFamily = Tokens.Fonts.Grotesque,
                 FontSize = Tokens.Fonts.Label,
-                Foreground = new SolidColorBrush(Tokens.Colors.InkOnDeck, 0.4),
+                Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary, 0.6),
                 HorizontalAlignment = HorizontalAlignment.Center,
             },
         },
@@ -136,10 +152,14 @@ internal static class Panels
         return control;
     }
 
-    /// <summary>A silkscreen label above a control, the way a panel is printed.</summary>
-    public static StackPanel Labelled(string label, Control content) => new()
+    /// <summary>A small-caps label, the modern caption voice.</summary>
+    public static TextBlock Caption(string label) => new()
     {
-        Spacing = Tokens.Space.Tight,
-        Children = { new Silkscreen { Text = label }, content },
+        Text = label,
+        FontFamily = Tokens.Fonts.Grotesque,
+        FontSize = Tokens.Fonts.Silkscreen,
+        FontWeight = FontWeight.SemiBold,
+        LetterSpacing = Tokens.Fonts.SilkscreenTracking,
+        Foreground = Tokens.Brushes.Silkscreen,
     };
 }

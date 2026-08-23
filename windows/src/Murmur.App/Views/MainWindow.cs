@@ -1,23 +1,23 @@
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
-using Murmur.App.Controls;
 using Murmur.App.Design;
 using Murmur.Core;
 
 namespace Murmur.App.Views;
 
 /// <summary>
-/// The main window — the front panel of the unit.
+/// The main window — one hero pill, the transcriptions and dictionary behind it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Laid out the way a deck is: transport and meter across the top on the panel itself, then a
-/// recessed well below holding whichever section is selected.
+/// The whole app is one gesture: the dark pill in the middle of the window. Click it or
+/// hold the push-to-talk key; release and the cleaned text lands in the focused app.
 /// </para>
 /// <para>
 /// Built in code rather than XAML, deliberately. Every value comes from <see cref="Tokens"/>,
@@ -27,20 +27,26 @@ namespace Murmur.App.Views;
 /// </remarks>
 public sealed class MainWindow : Window
 {
+    /// <summary>The default hero caption, shown when the engine has nothing to say.</summary>
+    private const string DefaultHint = "Hold Right Ctrl — or click the pill. Fillers like um, actually are removed automatically.";
+
     private readonly Composition? _composition;
-    private readonly TransportKey _recordKey;
-    private readonly Lamp _recordLamp;
-    private readonly VuMeter _meter;
-    private readonly TextBlock _counter;
-    private readonly TextBlock _status;
+    private readonly Border _heroPill;
+    private TextBlock _heroLabel = null!;   // assigned by BuildHeroPill, called from the ctor
+    private readonly Rectangle[] _waveBars = new Rectangle[Tokens.Material.WaveformBars];
+    private readonly Ellipse _statusDot;
+    private readonly TextBlock _statusText;
+    private readonly TextBlock _subLine;
+    private readonly Button _transcriptionsTab;
+    private readonly Button _dictionaryTab;
     private readonly ContentControl _sectionHost;
-    private readonly TransportKey _transcriptionsKey;
-    private readonly TransportKey _dictionaryKey;
-    private readonly DispatcherTimer _counterTimer;
+    private readonly DispatcherTimer _waveTimer;
+    private readonly DispatcherTimer _noticeTimer;
 
     private Control? _transcriptionsView;
     private Control? _dictionaryView;
-    private DateTimeOffset? _startedAt;
+    private bool _heroPressed;
+    private bool _recordingVisual;
 
     /// <summary>Builds a window with no engine behind it. Used by headless tests.</summary>
     public MainWindow() : this(null) { }
@@ -55,53 +61,69 @@ public sealed class MainWindow : Window
         MinHeight = 520;
         Width = 880;
         Height = 640;
-        Background = Tokens.Brushes.Chassis;
+        Background = Tokens.Brushes.ChassisGradient;
 
         // The window icon is the same mark as the tray — resolved from the assembly name
         // so it keeps working however the executable is named.
         Icon = new WindowIcon(AssetLoader.Open(new Uri(
             "avares://" + typeof(MainWindow).Assembly.GetName().Name + "/Assets/tray.ico")));
 
-        _recordKey = new TransportKey { Content = "RECORD" };
-        _recordKey.Click += (_, _) => ToggleRecording();
+        _heroPill = BuildHeroPill();
 
-        _recordLamp = new Lamp { LampColor = Tokens.Colors.Record };
-        _meter = new VuMeter { Width = 168, Height = 54 };
-
-        _counter = new TextBlock
+        _statusDot = new Ellipse
         {
-            Text = "00:00",
-            FontFamily = Tokens.Fonts.Mono,
-            FontSize = Tokens.Fonts.CounterLarge,
-            Foreground = Tokens.Brushes.InkOnDeck,
+            Width = 8,
+            Height = 8,
+            Fill = Tokens.Brushes.Success,
+        };
+        _statusText = new TextBlock
+        {
+            Text = "Ready",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            FontWeight = FontWeight.Medium,
+            Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
-        _status = new TextBlock
+        _subLine = new TextBlock
         {
-            Text = "Hold the push-to-talk key to dictate.",
+            Text = DefaultHint,
             FontFamily = Tokens.Fonts.Grotesque,
             FontSize = Tokens.Fonts.Label,
             Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
             TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
         };
 
-        _transcriptionsKey = new TransportKey { Content = "TRANSCRIPTIONS", IsEngaged = true };
-        _dictionaryKey = new TransportKey { Content = "DICTIONARY" };
-        _transcriptionsKey.Click += (_, _) => ShowSection(transcriptions: true);
-        _dictionaryKey.Click += (_, _) => ShowSection(transcriptions: false);
+        _transcriptionsTab = BuildTab("Transcriptions", engaged: true);
+        _dictionaryTab = BuildTab("Dictionary", engaged: false);
+        _transcriptionsTab.Click += (_, _) => ShowSection(transcriptions: true);
+        _dictionaryTab.Click += (_, _) => ShowSection(transcriptions: false);
 
         _sectionHost = new ContentControl();
 
-        // The meter and counter are polled rather than pushed. The engine raises Changed on
-        // a background thread at buffer rate, and marshalling every one of those to the UI
-        // thread would be far more traffic than a display refresh needs.
-        _counterTimer = new DispatcherTimer(DispatcherPriority.Background)
+        // The waveform and pill state are polled rather than pushed. The engine raises
+        // Changed on a background thread at buffer rate, and marshalling every one of
+        // those to the UI thread would be far more traffic than a display refresh needs.
+        _waveTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
-            Interval = TimeSpan.FromMilliseconds(100),
+            Interval = TimeSpan.FromMilliseconds(40),
         };
-        _counterTimer.Tick += (_, _) => SyncFromEngine();
-        _counterTimer.Start();
+        _waveTimer.Tick += (_, _) => SyncFromEngine();
+        _waveTimer.Start();
+
+        // Transient engine notices (typed, failed, loading) revert to the standing hint.
+        _noticeTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(4),
+        };
+        _noticeTimer.Tick += (_, _) =>
+        {
+            _noticeTimer.Stop();
+            _subLine.Text = DefaultHint;
+        };
 
         Content = BuildLayout();
         ShowSection(transcriptions: true);
@@ -110,163 +132,344 @@ public sealed class MainWindow : Window
         {
             // Engine notices arrive on a background thread; the panel is UI-thread-only.
             _composition.Engine.Notice += (_, message) =>
-                Dispatcher.UIThread.Post(() => _status.Text = message);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _subLine.Text = message;
+                    _noticeTimer.Stop();
+                    _noticeTimer.Start();
+                });
             _composition.Engine.Start();
         }
     }
 
     private DockPanel BuildLayout()
     {
-        var root = new DockPanel { Margin = new Thickness(Tokens.Space.Roomy) };
+        var root = new DockPanel { Margin = new Thickness(Tokens.Space.Panel) };
 
-        root.Children.Add(Panels.Docked(BuildTransportPanel(), Dock.Top));
-        root.Children.Add(Panels.Docked(BuildStatusStrip(), Dock.Top));
-        root.Children.Add(Panels.Docked(BuildSectionKeys(), Dock.Top));
+        root.Children.Add(Panels.Docked(BuildHeader(), Dock.Top));
+        root.Children.Add(Panels.Docked(BuildHero(), Dock.Top));
+        root.Children.Add(Panels.Docked(BuildTabs(), Dock.Top));
 
         if (_composition is not null && !Composition.IsModelInstalled)
         {
             root.Children.Add(Panels.Docked(BuildModelBanner(), Dock.Top));
         }
 
-        root.Children.Add(BuildWell(_sectionHost));
+        root.Children.Add(_sectionHost);
         return root;
     }
 
-    /// <summary>A thin strip showing what the engine last did — the failure is never silent.</summary>
-    private BrushedPanel BuildStatusStrip() => new()
+    /// <summary>Brand on the left, status chip and settings on the right.</summary>
+    private DockPanel BuildHeader()
     {
-        Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
-        Child = new StackPanel
+        var brand = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Tokens.Space.Base,
-            Margin = new Thickness(Tokens.Space.Base),
-            Children = { _status },
-        },
-    };
-
-    /// <summary>Record/stop, the record lamp, the level meter and the tape counter.</summary>
-    private BrushedPanel BuildTransportPanel()
-    {
-        var row = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Tokens.Space.Wide,
-            Margin = new Thickness(Tokens.Space.Roomy),
-        };
-
-        row.Children.Add(Panels.Labelled("TRANSPORT", new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = Tokens.Space.Snug,
+            VerticalAlignment = VerticalAlignment.Center,
             Children =
             {
-                _recordKey,
+                new Border
+                {
+                    Width = 30,
+                    Height = 30,
+                    CornerRadius = new CornerRadius(Tokens.Radius.Control),
+                    Background = Tokens.Brushes.Brand,
+                    Child = new TextBlock
+                    {
+                        Text = "W",
+                        FontFamily = Tokens.Fonts.Grotesque,
+                        FontSize = Tokens.Fonts.Title,
+                        FontWeight = FontWeight.Bold,
+                        Foreground = Tokens.Brushes.PillInk,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                },
                 new StackPanel
                 {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = Tokens.Space.Tight,
+                    Spacing = 0,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Children = { _recordLamp, new Silkscreen { Text = "REC" } },
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Woffle",
+                            FontFamily = Tokens.Fonts.Grotesque,
+                            FontSize = Tokens.Fonts.Title,
+                            FontWeight = FontWeight.SemiBold,
+                            Foreground = Tokens.Brushes.Ink,
+                        },
+                        new TextBlock
+                        {
+                            Text = "DICTATION",
+                            FontFamily = Tokens.Fonts.Grotesque,
+                            FontSize = 10.5,
+                            FontWeight = FontWeight.SemiBold,
+                            LetterSpacing = Tokens.Fonts.SilkscreenTracking * 3,
+                            Foreground = Tokens.Brushes.Silkscreen,
+                        },
+                    },
                 },
             },
-        }));
+        };
 
-        row.Children.Add(Panels.Labelled("LEVEL", _meter));
-        row.Children.Add(Panels.Labelled("COUNTER", Deck(_counter)));
+        var statusChip = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(Tokens.Border.Hairline),
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug - Tokens.Space.Hair),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Tokens.Space.Snug,
+                Children = { _statusDot, _statusText },
+            },
+        };
 
-        var settings = new TransportKey { Content = "SETTINGS" };
+        var settings = new Button
+        {
+            // Material "tune" glyph as a vector so it renders on any platform, not just
+            // Windows icon fonts.
+            Content = VectorIcon(
+                "M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zM15 9h2V7h4V5h-4V3h-2v6z",
+                Tokens.Brushes.Ink, 18),
+            Width = 38,
+            Height = 38,
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Background = new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(Tokens.Border.Hairline),
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
         settings.Click += (_, _) => ShowSettings();
 
-        row.Children.Add(new StackPanel
+        var header = new DockPanel();
+        header.Children.Add(brand);
+
+        var right = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = Tokens.Space.Base,
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Children = { settings, new Vents { Count = 8, VerticalAlignment = VerticalAlignment.Center } },
-        });
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { statusChip, settings },
+        };
+        DockPanel.SetDock(right, Dock.Right);
+        header.Children.Add(right);
 
-        return new BrushedPanel { Child = row, Margin = new Thickness(0, 0, 0, Tokens.Space.Base) };
+        return header;
     }
 
-    private StackPanel BuildSectionKeys() => new()
+    /// <summary>The one gesture: the hero pill.</summary>
+    private StackPanel BuildHero()
+    {
+        var hero = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Spacing = Tokens.Space.Roomy,
+            Margin = new Thickness(0, Tokens.Space.Wide, 0, Tokens.Space.Roomy),
+        };
+        hero.Children.Add(_heroPill);
+        hero.Children.Add(_subLine);
+        return hero;
+    }
+
+    /// <summary>The hero pill: a plain Border, deliberately — the Fluent Button theme paints
+    /// its own hover/pressed background over any custom colour, and the hero must hold its
+    /// own. Pointer handlers carry the press/release gesture instead.</summary>
+    private Border BuildHeroPill()
+    {
+        var mic = new Border
+        {
+            Width = 34,
+            Height = 34,
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Background = new SolidColorBrush(Tokens.Colors.PillInk, 0.10),
+            Child = VectorIcon(
+                "M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z",
+                Tokens.Brushes.PillInk, 17),
+        };
+
+        var label = new TextBlock
+        {
+            Text = "Hold to dictate",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Pill,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Tokens.Brushes.PillInk,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _heroLabel = label;
+
+        var bars = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 3,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        for (var i = 0; i < _waveBars.Length; i++)
+        {
+            _waveBars[i] = new Rectangle
+            {
+                Width = Tokens.Material.WaveformBarWidth,
+                RadiusX = Tokens.Material.WaveformBarRadius,
+                RadiusY = Tokens.Material.WaveformBarRadius,
+                Fill = new SolidColorBrush(Tokens.Colors.PillInk, 0.55),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            bars.Children.Add(_waveBars[i]);
+        }
+
+        var pill = new Border
+        {
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Tokens.Space.Roomy,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { mic, label, bars },
+            },
+            MinHeight = Tokens.Material.HeroPillHeight,
+            MinWidth = Tokens.Material.HeroPillMinWidth,
+            Padding = new Thickness(Tokens.Space.Wide + Tokens.Space.Snug, 0),
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Background = Tokens.Brushes.DarkPill,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Focusable = true,
+            // A soft drop shadow is what makes the pill float above the paper.
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 40,
+                OffsetY = 16,
+                Color = Color.FromArgb(0x73, 0x24, 0x21, 0x1C),
+            },
+        };
+
+        // Press and release, like a real push-to-talk key. The pointer is captured so a
+        // release anywhere still counts, and Enter/Space work once focused.
+        pill.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(pill).Properties.IsLeftButtonPressed) return;
+            _heroPressed = true;
+            e.Pointer.Capture(pill);
+            UpdatePillBrush();
+            e.Handled = true;
+        };
+        pill.PointerReleased += (_, e) =>
+        {
+            if (!_heroPressed) return;
+            _heroPressed = false;
+            e.Pointer.Capture(null);
+            UpdatePillBrush();
+            ToggleRecording();
+            e.Handled = true;
+        };
+        pill.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Enter or Key.Space)
+            {
+                ToggleRecording();
+                e.Handled = true;
+            }
+        };
+
+        return pill;
+    }
+
+    /// <summary>A vector icon from SVG path data, at a fixed pixel size.</summary>
+    /// <remarks>
+    /// Drawn, not font glyphs: icon fonts (Segoe MDL2, Segoe Fluent) exist only on Windows,
+    /// and a missing font renders as a box of tofu. Path data renders identically anywhere.
+    /// </remarks>
+    private static Avalonia.Controls.Shapes.Path VectorIcon(string pathData, IBrush fill, double size) => new()
+    {
+        Data = StreamGeometry.Parse(pathData),
+        Fill = fill,
+        Width = size,
+        Height = size,
+        Stretch = Stretch.Uniform,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static Button BuildTab(string label, bool engaged)
+    {
+        var tab = new Button
+        {
+            Content = label,
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Body,
+            FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal,
+            Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0, 0, 0, 2),
+            BorderBrush = engaged ? Tokens.Brushes.Accent : Brushes.Transparent,
+            Padding = new Thickness(2, 0, 2, Tokens.Space.Snug),
+            CornerRadius = new CornerRadius(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        return tab;
+    }
+
+    private StackPanel BuildTabs() => new()
     {
         Orientation = Orientation.Horizontal,
-        Spacing = Tokens.Space.Snug,
-        Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
-        Children = { _transcriptionsKey, _dictionaryKey },
+        Spacing = Tokens.Space.Wide + Tokens.Space.Snug,
+        Margin = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Base),
+        Children = { _transcriptionsTab, _dictionaryTab },
     };
 
     /// <summary>
     /// A standing notice that the app cannot transcribe yet.
     /// </summary>
     /// <remarks>
-    /// Unlike macOS, Windows has no built-in engine to fall back on, so a missing model means
-    /// the app does nothing at all. That has to be visible on the front panel rather than
-    /// buried in Settings.
+    /// Windows has no built-in engine to fall back on, so a missing model means the app does
+    /// nothing at all. That has to be visible on the front panel rather than buried in
+    /// Settings.
     /// </remarks>
-    private static BrushedPanel BuildModelBanner() => new()
+    private static Border BuildModelBanner() => Panels.Card(new StackPanel
     {
-        Margin = new Thickness(0, 0, 0, Tokens.Space.Base),
-        Child = new StackPanel
+        Orientation = Orientation.Horizontal,
+        Spacing = Tokens.Space.Base,
+        Margin = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Base),
+        Children =
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = Tokens.Space.Base,
-            Margin = new Thickness(Tokens.Space.Base),
-            Children =
+            new Ellipse
             {
-                new Lamp
-                {
-                    IsLit = true,
-                    LampColor = Tokens.Colors.MeterAmber,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-                new TextBlock
-                {
-                    Text = "Speech model not installed — Murmur cannot transcribe yet. "
-                         + "See Settings, or docs/PARAKEET-WINDOWS.md.",
-                    FontFamily = Tokens.Fonts.Grotesque,
-                    FontSize = Tokens.Fonts.Label,
-                    Foreground = Tokens.Brushes.Ink,
-                    TextWrapping = TextWrapping.Wrap,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
+                Width = 8,
+                Height = 8,
+                Fill = new SolidColorBrush(Tokens.Colors.MeterAmber),
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+            new TextBlock
+            {
+                Text = "Speech model not installed — Woffle cannot transcribe yet. See Settings.",
+                FontFamily = Tokens.Fonts.Grotesque,
+                FontSize = Tokens.Fonts.Label,
+                Foreground = Tokens.Brushes.Ink,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
             },
         },
-    };
-
-    /// <summary>A recessed well cut into the panel — content sits inside it.</summary>
-    private static Border BuildWell(Control content) => new()
-    {
-        Background = Tokens.Brushes.Well,
-        CornerRadius = new CornerRadius(Tokens.Radius.Panel),
-        BorderBrush = new SolidColorBrush(Tokens.Colors.Seam, 0.55),
-        BorderThickness = new Thickness(Tokens.Border.Hairline),
-        Padding = new Thickness(Tokens.Space.Hair),
-        Child = content,
-    };
-
-    /// <summary>The dark readout window of a tape deck.</summary>
-    private static Border Deck(Control content) => new()
-    {
-        Background = Tokens.Brushes.Deck,
-        CornerRadius = new CornerRadius(Tokens.Radius.Panel),
-        BorderBrush = new SolidColorBrush(Tokens.Colors.Seam),
-        BorderThickness = new Thickness(Tokens.Border.Hairline),
-        Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug),
-        Child = content,
-    };
+    });
 
     private void ShowSection(bool transcriptions)
     {
-        _transcriptionsKey.IsEngaged = transcriptions;
-        _dictionaryKey.IsEngaged = !transcriptions;
+        SetTabEngaged(_transcriptionsTab, transcriptions);
+        SetTabEngaged(_dictionaryTab, !transcriptions);
 
         if (_composition is null)
         {
             _sectionHost.Content = Panels.EmptyState(
-                transcriptions ? "NO RECORDINGS" : "DICTIONARY EMPTY",
-                transcriptions ? "Press Record to start." : "Add words it keeps getting wrong.");
+                transcriptions ? "No recordings" : "Dictionary empty",
+                transcriptions ? "Click the pill and speak." : "Add words it keeps getting wrong.");
             return;
         }
 
@@ -284,6 +487,13 @@ public sealed class MainWindow : Window
         }
     }
 
+    private static void SetTabEngaged(Button tab, bool engaged)
+    {
+        tab.FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal;
+        tab.Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8);
+        tab.BorderBrush = engaged ? Tokens.Brushes.Accent : Brushes.Transparent;
+    }
+
     private void ShowSettings()
     {
         if (_composition is null) return;
@@ -294,32 +504,44 @@ public sealed class MainWindow : Window
     private void SyncFromEngine()
     {
         var engine = _composition?.Engine;
-        if (engine is null)
-        {
-            if (_startedAt is not null) UpdateCounter();
-            return;
-        }
 
-        var recording = engine.State != DictationState.Idle;
+        var recording = engine is null
+            ? IsRecording
+            : engine.State != DictationState.Idle;
 
-        _meter.Level = engine.Level;
-        _meter.IsActive = recording;
-        _recordLamp.IsLit = engine.State == DictationState.Recording;
-        _recordKey.IsEngaged = recording;
-        _recordKey.Content = recording ? "STOP" : "RECORD";
+        _heroLabel.Text = recording ? "Listening…" : "Hold to dictate";
+        _recordingVisual = recording;
+        UpdatePillBrush();
 
-        if (recording && _startedAt is null) _startedAt = DateTimeOffset.Now;
-        else if (!recording) _startedAt = null;
+        _statusDot.Fill = recording ? Tokens.Brushes.Record : Tokens.Brushes.Success;
+        _statusText.Text = recording ? "Recording" : "Ready";
 
-        UpdateCounter();
+        var level = engine?.Level ?? (recording ? 0.6 : 0);
+        UpdateWaveform(recording, level);
     }
 
-    private void UpdateCounter()
+    /// <summary>Drives the hero waveform: still when idle, alive while recording.</summary>
+    private void UpdateWaveform(bool recording, double level)
     {
-        var elapsed = _startedAt is null ? TimeSpan.Zero : DateTimeOffset.Now - _startedAt.Value;
-        _counter.Text = string.Create(
-            CultureInfo.InvariantCulture,
-            $"{(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}");
+        if (recording)
+        {
+            for (var i = 0; i < _waveBars.Length; i++)
+            {
+                var wiggle = (Random.Shared.NextDouble() * 0.5) + 0.25;
+                var height = 4 + (level * 20 * wiggle);
+                _waveBars[i].Height = Math.Clamp(height, 4, 22);
+                _waveBars[i].Fill = Tokens.Brushes.RecordBar;
+            }
+        }
+        else
+        {
+            var idle = new[] { 5.0, 8, 5, 11, 5, 8, 5 };
+            for (var i = 0; i < _waveBars.Length; i++)
+            {
+                _waveBars[i].Height = idle[i % idle.Length];
+                _waveBars[i].Fill = new SolidColorBrush(Tokens.Colors.PillInk, 0.55);
+            }
+        }
     }
 
     /// <summary>Toggles the transport. Exposed for headless tests.</summary>
@@ -330,11 +552,7 @@ public sealed class MainWindow : Window
         if (_composition?.Engine is null)
         {
             IsRecording = !IsRecording;
-            _recordKey.Content = IsRecording ? "STOP" : "RECORD";
-            _recordKey.IsEngaged = IsRecording;
-            _recordLamp.IsLit = IsRecording;
-            _meter.IsActive = IsRecording;
-            _startedAt = IsRecording ? DateTimeOffset.Now : null;
+            SyncFromEngine();
             return;
         }
 
@@ -344,19 +562,25 @@ public sealed class MainWindow : Window
         SyncFromEngine();
     }
 
+    /// <summary>Applies the pill surface: recording colour, dimmed while pressed.</summary>
+    private void UpdatePillBrush()
+    {
+        _heroPill.Background = _heroPressed
+            ? _recordingVisual ? Tokens.Brushes.RecordPillPressed : Tokens.Brushes.DarkPillPressed
+            : _recordingVisual ? Tokens.Brushes.RecordPill : Tokens.Brushes.DarkPill;
+    }
+
     /// <summary>Whether the transport is engaged. Exposed for headless tests.</summary>
     public bool IsRecording { get; private set; }
 
-    /// <summary>The record lamp. Exposed for headless tests.</summary>
-    public Lamp RecordLamp => _recordLamp;
-
-    /// <summary>The level meter. Exposed for headless tests.</summary>
-    public VuMeter Meter => _meter;
+    /// <summary>The status chip text. Exposed for headless tests.</summary>
+    public TextBlock StatusText => _statusText;
 
     /// <inheritdoc />
     protected override void OnClosed(EventArgs e)
     {
-        _counterTimer.Stop();
+        _waveTimer.Stop();
+        _noticeTimer.Stop();
         base.OnClosed(e);
     }
 }
