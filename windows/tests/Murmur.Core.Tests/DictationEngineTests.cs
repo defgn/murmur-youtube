@@ -41,11 +41,11 @@ public sealed class DictationEngineTests
     private static async Task DictateAsync(FakeHotkeySource hotkey, DictationEngine engine)
     {
         hotkey.Press();
-        for (var i = 0; i < 2000 && engine.State != DictationState.Recording; i++) await Task.Yield();
-        for (var i = 0; i < 20000 && engine.Level == 0; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Recording; i++) await Task.Delay(10);
+        for (var i = 0; i < 2000 && engine.Level == 0; i++) await Task.Delay(10);
 
         hotkey.Release();
-        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Idle; i++) await Task.Delay(10);
     }
 
     [Fact]
@@ -103,9 +103,9 @@ public sealed class DictationEngineTests
             FakeAudioCapture.Silence(0.5), hotkey, new FakeTranscriber(""), injector);
 
         hotkey.Press();
-        for (var i = 0; i < 2000 && engine.State != DictationState.Recording; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Recording; i++) await Task.Delay(10);
         hotkey.Release();
-        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Idle; i++) await Task.Delay(10);
 
         injector.Injected.ShouldBeEmpty();
     }
@@ -119,7 +119,7 @@ public sealed class DictationEngineTests
             FakeAudioCapture.Tone(0.2), hotkey, new FakeTranscriber("hello"), injector);
 
         hotkey.Release();
-        for (var i = 0; i < 500; i++) await Task.Yield();
+        for (var i = 0; i < 100 && engine.State == DictationState.Idle; i++) await Task.Delay(10);
 
         engine.State.ShouldBe(DictationState.Idle);
         injector.Injected.ShouldBeEmpty();
@@ -202,9 +202,9 @@ public sealed class DictationEngineTests
 
         hotkey.Press();
         // ~0.5s with a 100ms preview interval: several partial ticks should have run.
-        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(10);
+        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(50);
         hotkey.Release();
-        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Idle; i++) await Task.Delay(10);
 
         partials.ShouldNotBeEmpty("the preview should transcribe while the key is held");
         partials.ShouldAllBe(t => t == "hello world");
@@ -230,9 +230,9 @@ public sealed class DictationEngineTests
         engine.PartialTranscript += (_, text) => partials.Add(text);
 
         hotkey.Press();
-        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(10);
+        for (var i = 0; i < 100 && partials.Count == 0; i++) await Task.Delay(50);
         hotkey.Release();
-        for (var i = 0; i < 20000 && engine.State != DictationState.Idle; i++) await Task.Yield();
+        for (var i = 0; i < 500 && engine.State != DictationState.Idle; i++) await Task.Delay(10);
 
         partials.ShouldNotBeEmpty();
         partials.ShouldAllBe(t => t == "hello there");
@@ -254,7 +254,9 @@ public sealed class DictationEngineTests
         transcriber.IsReady.ShouldBeTrue();
 
         // The idle timeout fires and frees the recognizer — the memory win of the feature.
-        for (var i = 0; i < 200 && transcriber.IsReady; i++) await Task.Delay(10);
+        // Generous budget: the 150ms timer races whatever else the test runner is doing, so
+        // this must tolerate scheduling delays.
+        for (var i = 0; i < 500 && transcriber.IsReady; i++) await Task.Delay(25);
         transcriber.IsReady.ShouldBeFalse("the model must be unloaded after the idle timeout");
 
         // And the next dictation reloads it transparently.

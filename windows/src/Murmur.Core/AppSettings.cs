@@ -44,11 +44,17 @@ public sealed record SettingsData
     public bool SimplifyArithmetic { get; init; } = true;
 
     /// <summary>
-    /// Whether to run the optional local-AI cleanup pass (Ollama on this PC) over the
-    /// finished transcript. Off by default: it adds ~a second per dictation and needs
-    /// Ollama running; the deterministic passes are always the baseline.
+    /// Whether to run the optional local-AI cleanup pass over the finished transcript.
+    /// On by default since v16: the bundled model makes it self-contained. It adds roughly
+    /// a second per dictation; the deterministic passes are always the baseline.
     /// </summary>
-    public bool SmartClean { get; init; }
+    public bool SmartClean { get; init; } = true;
+
+    /// <summary>
+    /// Which local model serves the smart pass: "Bundled" (the GGUF shipped in the zip —
+    /// self-contained, default) or "Ollama" (a model already running in Ollama on this PC).
+    /// </summary>
+    public string SmartCleanBackend { get; init; } = "Bundled";
 
     /// <summary>
     /// The Ollama model tag for the smart pass, or null/empty to auto-pick the first

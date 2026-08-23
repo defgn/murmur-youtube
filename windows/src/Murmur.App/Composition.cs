@@ -94,7 +94,7 @@ public sealed class Composition : IAsyncDisposable
                 removeFillers: settings.Data.RemoveFillers,
                 simplifyArithmetic: settings.Data.SimplifyArithmetic,
                 smartCleaner: settings.Data.SmartClean
-                    ? new OllamaCleaner(settings.Data.SmartCleanModel)
+                    ? BuildSmartCleaner(settings)
                     : null,
                 idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero);
 
@@ -118,6 +118,15 @@ public sealed class Composition : IAsyncDisposable
 
         return new Composition(settings, dictionary, transcripts, engine, available);
     }
+
+    /// <summary>
+    /// Builds the smart-clean backend the user chose: the bundled GGUF (default,
+    /// self-contained) or the Ollama on this PC (auto-picking its model when unset).
+    /// </summary>
+    private static ISmartCleaner BuildSmartCleaner(AppSettings settings) =>
+        string.Equals(settings.Data.SmartCleanBackend, "Ollama", StringComparison.OrdinalIgnoreCase)
+            ? new OllamaCleaner(settings.Data.SmartCleanModel)
+            : new BundledCleaner();
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

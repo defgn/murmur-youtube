@@ -85,7 +85,12 @@ public sealed class SettingsWindow : Window
             TextWrapping = TextWrapping.Wrap,
         };
 
-        Content = BuildContent();
+        Content = new ScrollViewer
+        {
+            MaxHeight = 660,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = BuildContent(),
+        };
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
         RefreshMicrophones();
     }
@@ -130,12 +135,9 @@ public sealed class SettingsWindow : Window
                     Toggle("Simplify corrections (three minus one potatoes → 2 potatoes)",
                         _settings.Data.SimplifyArithmetic,
                         v => Save(_settings.Data with { SimplifyArithmetic = v })),
-                    Toggle("Smart cleanup (local AI via Ollama)",
-                        _settings.Data.SmartClean,
+                    Toggle("Smart cleanup (local AI)", _settings.Data.SmartClean,
                         v => Save(_settings.Data with { SmartClean = v })),
-                    Note("Smart cleanup uses the language model already running in Ollama on this "
-                        + "PC and adds roughly a second per dictation. If Ollama is not running, "
-                        + "the built-in cleaner is used instead."),
+                    BuildSmartCleanBackend(),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
                     Toggle("Keep running in the notification area when I close the window",
@@ -396,5 +398,81 @@ public sealed class SettingsWindow : Window
         button.Background = engaged ? Tokens.Brushes.GlassStrong : Brushes.Transparent;
         button.BorderBrush = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : new SolidColorBrush(Tokens.Colors.Seam);
         button.BorderThickness = new Thickness(1);
+    }
+
+    private Button _bundledBackendButton = null!;
+    private Button _ollamaBackendButton = null!;
+    private TextBox _ollamaModelBox = null!;
+    private TextBlock _smartNote = null!;
+
+    /// <summary>
+    /// The smart-clean engine choice: the bundled GGUF (self-contained, default) or the
+    /// Ollama on this PC. Selecting Ollama reveals its optional model-tag field.
+    /// </summary>
+    private StackPanel BuildSmartCleanBackend()
+    {
+        var isOllama = string.Equals(
+            _settings.Data.SmartCleanBackend, "Ollama", StringComparison.OrdinalIgnoreCase);
+
+        _bundledBackendButton = Selectable("Bundled model", !isOllama);
+        _ollamaBackendButton = Selectable("Ollama", isOllama);
+        _bundledBackendButton.Click += (_, _) => SelectSmartBackend("Bundled");
+        _ollamaBackendButton.Click += (_, _) => SelectSmartBackend("Ollama");
+
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children = { _bundledBackendButton, _ollamaBackendButton },
+        };
+
+        _ollamaModelBox = new TextBox
+        {
+            Text = _settings.Data.SmartCleanModel ?? string.Empty,
+            Watermark = "Model tag — blank auto-picks the first installed",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            IsVisible = isOllama,
+        };
+        _ollamaModelBox.TextChanged += (_, _) => Save(_settings.Data with
+        {
+            SmartCleanModel = string.IsNullOrWhiteSpace(_ollamaModelBox.Text) ? null : _ollamaModelBox.Text,
+        });
+
+        _smartNote = new TextBlock
+        {
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        UpdateSmartNote();
+
+        return new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children = { Panels.Caption("CLEANUP MODEL"), row, _ollamaModelBox, _smartNote },
+        };
+    }
+
+    private void SelectSmartBackend(string backend)
+    {
+        var isOllama = backend == "Ollama";
+        SetSelectable(_bundledBackendButton, !isOllama);
+        SetSelectable(_ollamaBackendButton, isOllama);
+        _ollamaModelBox.IsVisible = isOllama;
+        Save(_settings.Data with { SmartCleanBackend = backend });
+        UpdateSmartNote();
+    }
+
+    private void UpdateSmartNote()
+    {
+        var isOllama = string.Equals(
+            _settings.Data.SmartCleanBackend, "Ollama", StringComparison.OrdinalIgnoreCase);
+        _smartNote.Text = isOllama
+            ? "Uses the model running in Ollama on this PC (leave the tag blank to auto-pick "
+              + "the first installed). If Ollama is not running, the built-in cleaner is used."
+            : "Uses the small model shipped with Woffle — works out of the box, nothing to "
+              + "install. Adds roughly a second per dictation.";
     }
 }

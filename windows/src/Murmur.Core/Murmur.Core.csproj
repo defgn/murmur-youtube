@@ -10,4 +10,12 @@
     <ProjectReference Include="..\Murmur.Abstractions\Murmur.Abstractions.csproj" />
     <ProjectReference Include="..\Murmur.Dictionary\Murmur.Dictionary.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- In-process llama.cpp bindings for the bundled smart-clean model. The CPU backend
+         runs anywhere; a CUDA backend package can be swapped in later for GPU speed with
+         no code changes. Pinned — see AGENTS.md for the pinned-package rationale. -->
+    <PackageReference Include="LLamaSharp" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" />
+  </ItemGroup>
 </Project>
