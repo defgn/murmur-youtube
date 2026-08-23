@@ -49,6 +49,7 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly IClock _clock;
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
     private readonly bool _removeFillers;
+    private readonly bool _simplifyArithmetic;
     private readonly TimeSpan _partialInterval;
     private readonly TimeSpan _idleUnloadTimeout;
     private CancellationTokenSource? _idleUnload;
@@ -105,6 +106,10 @@ public sealed class DictationEngine : IAsyncDisposable
     /// <param name="removeFillers">
     /// Whether to strip spoken disfluencies ("um", "er", "uh") from transcripts. Default true.
     /// </param>
+    /// <param name="simplifyArithmetic">
+    /// Whether to resolve spoken quantity corrections ("three potatoes no one potato no
+    /// three minus one potatoes" → "2 potatoes"). Default true.
+    /// </param>
     /// <param name="partialInterval">
     /// How often the live preview refreshes while recording. Defaults to two seconds; tests
     /// pass something shorter.
@@ -121,6 +126,7 @@ public sealed class DictationEngine : IAsyncDisposable
         Func<IReadOnlyList<DictionaryEntry>> dictionary,
         IClock? clock = null,
         bool removeFillers = true,
+        bool simplifyArithmetic = true,
         TimeSpan? partialInterval = null,
         TimeSpan idleUnloadTimeout = default)
     {
@@ -131,6 +137,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _dictionary = dictionary;
         _clock = clock ?? SystemClock.Instance;
         _removeFillers = removeFillers;
+        _simplifyArithmetic = simplifyArithmetic;
         _partialInterval = partialInterval ?? TimeSpan.FromSeconds(2);
         _idleUnloadTimeout = idleUnloadTimeout;
 
@@ -372,6 +379,14 @@ public sealed class DictationEngine : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(raw)) return;
         }
 
+        // Spoken quantity corrections ("three potatoes no one potato no three minus one
+        // potatoes" → "2 potatoes") resolve next, before the dictionary pass.
+        if (_simplifyArithmetic)
+        {
+            raw = ArithmeticSimplifier.Simplify(raw);
+            if (string.IsNullOrWhiteSpace(raw)) return;
+        }
+
         // The dictionary runs last and unconditionally. Biasing only raises the odds of the
         // right word; this is the pass that guarantees it.
         var (corrected, applied) = new DictionaryCorrector(entries).Apply(raw);
@@ -463,6 +478,12 @@ public sealed class DictationEngine : IAsyncDisposable
         if (_removeFillers)
         {
             raw = DisfluencyCleaner.Clean(raw);
+            if (string.IsNullOrWhiteSpace(raw)) return;
+        }
+
+        if (_simplifyArithmetic)
+        {
+            raw = ArithmeticSimplifier.Simplify(raw);
             if (string.IsNullOrWhiteSpace(raw)) return;
         }
 

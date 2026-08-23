@@ -92,6 +92,7 @@ public sealed class Composition : IAsyncDisposable
                 () => dictionary.Entries,
                 clock: null,
                 removeFillers: settings.Data.RemoveFillers,
+                simplifyArithmetic: settings.Data.SimplifyArithmetic,
                 idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero);
 
             // Persisted mic choice + boost apply live, without a restart.

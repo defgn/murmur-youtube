@@ -264,6 +264,29 @@ public sealed class DictationEngineTests
         injector.Injected.ShouldBe(expected);
     }
 
+    [Fact]
+    public async Task Arithmetic_corrections_are_resolved_end_to_end()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber(
+            "can I have three potatoes no one potato no three minus one potatoes");
+        var injector = new RecordingTextInjector();
+        var completed = new List<DictationResult>();
+
+        await using var engine = Build(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector);
+        engine.Completed += (_, result) => completed.Add(result);
+
+        await DictateAsync(hotkey, engine);
+
+        // The user's exact Wispr example: the transcript and the injection both say
+        // "2 potatoes".
+        completed.ShouldHaveSingleItem();
+        completed[0].Text.ShouldBe("can I have 2 potatoes");
+        injector.Injected.ShouldHaveSingleItem();
+        injector.Injected[0].ShouldBe("can I have 2 potatoes");
+    }
+
     /// <summary>
     /// The boundary is enforced by the compiler via CA1416, but this fails louder and names
     /// the reason: anything reachable from Core must run in CI on any platform.

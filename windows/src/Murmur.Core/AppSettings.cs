@@ -37,6 +37,12 @@ public sealed record SettingsData
     /// </summary>
     public bool RemoveFillers { get; init; } = true;
 
+    /// <summary>
+    /// Whether to resolve spoken quantity corrections ("three potatoes no one potato no
+    /// three minus one potatoes" → "2 potatoes") — the Wispr-style arithmetic trick.
+    /// </summary>
+    public bool SimplifyArithmetic { get; init; } = true;
+
     /// <summary>Whether to keep a transcript history.</summary>
     public bool KeepHistory { get; init; } = true;
 
