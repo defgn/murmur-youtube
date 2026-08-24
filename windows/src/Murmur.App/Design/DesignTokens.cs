@@ -182,6 +182,9 @@ public static class Tokens
         /// <summary>Glass card surface, more opaque — settings cards.</summary>
         public static IBrush GlassStrong => new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
 
+        /// <summary>Soft glass wash — hover fills, subtler than a card.</summary>
+        public static IBrush GlassSoft => new SolidColorBrush(Color.FromArgb(0x73, 0xFF, 0xFF, 0xFF));
+
         /// <inheritdoc cref="Colors.Well"/>
         public static IBrush Well => new SolidColorBrush(Colors.Well);
 

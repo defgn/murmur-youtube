@@ -396,6 +396,12 @@ public sealed class DictationEngine : IAsyncDisposable
             if (string.IsNullOrWhiteSpace(raw)) return;
         }
 
+        // The deterministic sentence tier: spacing, capitals, terminal punctuation. Always
+        // on — no LLM involved. The live preview deliberately skips this: mid-sentence
+        // partials would gain and lose periods as they grow.
+        raw = SentenceFormatter.Format(raw);
+        if (string.IsNullOrWhiteSpace(raw)) return;
+
         // The optional local-AI pass polishes everything the deterministic passes cannot
         // name. It never runs on the live preview (that would spam the model every two
         // seconds) and its failure is a silent fallback to the text above — except for a

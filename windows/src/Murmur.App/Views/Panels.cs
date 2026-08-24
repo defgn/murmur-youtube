@@ -25,7 +25,7 @@ internal static class Panels
         Foreground = Tokens.Brushes.Ink,
         Background = Brushes.Transparent,
         BorderThickness = new Thickness(0),
-        Padding = new Thickness(0),
+        Padding = new Thickness(Tokens.Space.Snug, Tokens.Space.Snug),
         VerticalAlignment = VerticalAlignment.Center,
     };
 

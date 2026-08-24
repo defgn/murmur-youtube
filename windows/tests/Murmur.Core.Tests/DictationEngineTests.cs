@@ -65,7 +65,7 @@ public sealed class DictationEngineTests
         // engine must load the model on first use, not on the second dictation.
         transcriber.IsReady.ShouldBeTrue();
         injector.Injected.ShouldHaveSingleItem();
-        injector.Injected[0].ShouldBe("hello");
+        injector.Injected[0].ShouldBe("Hello.");
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class DictationEngineTests
         await DictateAsync(hotkey, engine);
 
         injector.Injected.ShouldHaveSingleItem();
-        injector.Injected[0].ShouldBe("I use Claude Code every day");
+        injector.Injected[0].ShouldBe("I use Claude Code every day.");
 
         completed.ShouldNotBeNull();
         completed.Corrections.ShouldHaveSingleItem();
@@ -177,7 +177,7 @@ public sealed class DictationEngineTests
         // never costs the text — this is the contract behind "the text is in the
         // transcriptions list" when typing into an elevated or hostile window fails.
         completed.ShouldHaveSingleItem();
-        completed[0].Text.ShouldBe("the numbers look good");
+        completed[0].Text.ShouldBe("The numbers look good.");
         injector.Injected.ShouldHaveSingleItem();
         notices.ShouldContain(m => m.Contains("could not type", StringComparison.OrdinalIgnoreCase));
         engine.State.ShouldBe(DictationState.Idle);
@@ -211,7 +211,7 @@ public sealed class DictationEngineTests
 
         // The final transcript still lands exactly once, and the partials never did.
         injector.Injected.ShouldHaveSingleItem();
-        injector.Injected[0].ShouldBe("hello world");
+        injector.Injected[0].ShouldBe("Hello world.");
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public sealed class DictationEngineTests
         // And the next dictation reloads it transparently.
         await DictateAsync(hotkey, engine);
         transcriber.IsReady.ShouldBeTrue();
-        var expected = new[] { "hello", "hello" };
+        var expected = new[] { "Hello.", "Hello." };
         injector.Injected.ShouldBe(expected);
     }
 
@@ -284,9 +284,9 @@ public sealed class DictationEngineTests
         // The user's exact Wispr example: the transcript and the injection both say
         // "2 potatoes".
         completed.ShouldHaveSingleItem();
-        completed[0].Text.ShouldBe("can I have 2 potatoes");
+        completed[0].Text.ShouldBe("Can I have 2 potatoes.");
         injector.Injected.ShouldHaveSingleItem();
-        injector.Injected[0].ShouldBe("can I have 2 potatoes");
+        injector.Injected[0].ShouldBe("Can I have 2 potatoes.");
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public sealed class DictationEngineTests
         await DictateAsync(hotkey, engine);
 
         // The deterministic text stands, and the failure is surfaced once, not every time.
-        var expected = new[] { "hello world", "hello world" };
+        var expected = new[] { "Hello world.", "Hello world." };
         injector.Injected.ShouldBe(expected);
         notices.Count(m => m.Contains("Smart cleanup unavailable", StringComparison.OrdinalIgnoreCase))
             .ShouldBe(1);

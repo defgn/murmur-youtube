@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Murmur.App.Design;
 using Murmur.Core;
 using Murmur.Speech;
@@ -25,7 +26,6 @@ public sealed class SettingsWindow : Window
         (0xA3, "Right Ctrl", null),
         (0xA1, "Right Shift", null),
         (0x14, "Caps Lock", null),
-        (0x7C, "F13", null),
         (0xA5, "Right Alt", "Right Alt is AltGr on many European layouts — binding it here "
                           + "will interfere with typing @, €, \\ and |."),
     ];
@@ -53,6 +53,11 @@ public sealed class SettingsWindow : Window
         CanResize = false;
         Background = Tokens.Brushes.ChassisGradient;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        // The settings glyph on the title bar, resolved from the assembly name so it keeps
+        // working however the executable is named.
+        Icon = new WindowIcon(AssetLoader.Open(new Uri(
+            "avares://" + typeof(SettingsWindow).Assembly.GetName().Name + "/Assets/settings.ico")));
 
         _keyRow = new StackPanel
         {
@@ -136,7 +141,11 @@ public sealed class SettingsWindow : Window
                         _settings.Data.SimplifyArithmetic,
                         v => Save(_settings.Data with { SimplifyArithmetic = v })),
                     Toggle("Smart cleanup (local AI)", _settings.Data.SmartClean,
-                        v => Save(_settings.Data with { SmartClean = v })),
+                        v =>
+                        {
+                            Save(_settings.Data with { SmartClean = v });
+                            _smartCleanSection.IsEnabled = v;
+                        }),
                     BuildSmartCleanBackend(),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
@@ -404,6 +413,7 @@ public sealed class SettingsWindow : Window
     private Button _ollamaBackendButton = null!;
     private TextBox _ollamaModelBox = null!;
     private TextBlock _smartNote = null!;
+    private StackPanel _smartCleanSection = null!;
 
     /// <summary>
     /// The smart-clean engine choice: the bundled GGUF (self-contained, default) or the
@@ -448,11 +458,13 @@ public sealed class SettingsWindow : Window
         };
         UpdateSmartNote();
 
-        return new StackPanel
+        _smartCleanSection = new StackPanel
         {
             Spacing = Tokens.Space.Snug,
             Children = { Panels.Caption("CLEANUP MODEL"), row, _ollamaModelBox, _smartNote },
+            IsEnabled = _settings.Data.SmartClean,
         };
+        return _smartCleanSection;
     }
 
     private void SelectSmartBackend(string backend)
@@ -473,6 +485,6 @@ public sealed class SettingsWindow : Window
             ? "Uses the model running in Ollama on this PC (leave the tag blank to auto-pick "
               + "the first installed). If Ollama is not running, the built-in cleaner is used."
             : "Uses the small model shipped with Woffle — works out of the box, nothing to "
-              + "install. Adds roughly a second per dictation.";
+              + "install. Adds roughly a second per dictation and ~1 GB of RAM once loaded.";
     }
 }

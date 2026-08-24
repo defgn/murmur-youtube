@@ -69,25 +69,38 @@ public partial class App : Application, IDisposable
                     if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
                     {
                         lifetime.Shutdown();
+                        GuaranteeExit();
                     }
                 };
 
                 // Disposing tears down the keyboard hook and releases the audio device.
                 // Leaving a low-level hook installed after exit is the kind of thing that
-                // makes a machine feel broken until it is rebooted.
+                // makes a machine feel broken until it is rebooted. The teardown runs on a
+                // background task and never blocks the exit: the OS reclaims hooks and
+                // hotkeys the moment the process dies, so a stalled teardown must not be
+                // able to keep Woffle alive in Task Manager.
                 desktop.ShutdownRequested += (_, _) =>
                 {
-                    try
-                    {
-                        _composition?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                    }
-                    catch (Exception e)
-                    {
-                        // The process is leaving regardless; a failed disposal must not turn
-                        // a clean shutdown into a crash dialog.
-                        WriteLog("shutdown", e);
-                    }
+                    var composition = _composition;
                     _composition = null;
+
+                    if (composition is not null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await composition.DisposeAsync().ConfigureAwait(false);
+                            }
+                            catch (Exception e)
+                            {
+                                // The process is leaving regardless; a failed disposal must
+                                // not turn a clean shutdown into a crash dialog.
+                                WriteLog("shutdown", e);
+                            }
+                        });
+                    }
+
                     Dispose();
                 };
             }
@@ -234,8 +247,26 @@ public partial class App : Application, IDisposable
     {
         // Real quit: bypass the close-to-tray interception, then shut down.
         _main?.ApproveClose();
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) desktop.Shutdown();
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+            GuaranteeExit();
+        }
     });
+
+    /// <summary>
+    /// If anything in the shutdown path stalls (a native audio teardown, a stray dialog),
+    /// the process must still die: Task Manager should never show Woffle after Quit or a
+    /// window close.
+    /// </summary>
+    private static void GuaranteeExit()
+    {
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            Environment.Exit(0);
+        });
+    }
 
     private void ShowMain()
     {

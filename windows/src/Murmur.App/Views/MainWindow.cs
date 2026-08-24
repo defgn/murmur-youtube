@@ -34,8 +34,8 @@ public sealed class MainWindow : Window
     private readonly Ellipse _statusDot;
     private readonly TextBlock _statusText;
     private readonly TextBlock _subLine;
-    private readonly Button _transcriptionsTab;
-    private readonly Button _dictionaryTab;
+    private readonly Border _transcriptionsTab;
+    private readonly Border _dictionaryTab;
     private readonly ContentControl _sectionHost;
     private readonly DispatcherTimer _waveTimer;
     private readonly DispatcherTimer _noticeTimer;
@@ -104,8 +104,8 @@ public sealed class MainWindow : Window
 
         _transcriptionsTab = BuildTab("Transcriptions", engaged: true);
         _dictionaryTab = BuildTab("Dictionary", engaged: false);
-        _transcriptionsTab.Click += (_, _) => ShowSection(transcriptions: true);
-        _dictionaryTab.Click += (_, _) => ShowSection(transcriptions: false);
+        _transcriptionsTab.PointerPressed += (_, _) => ShowSection(transcriptions: true);
+        _dictionaryTab.PointerPressed += (_, _) => ShowSection(transcriptions: false);
 
         _sectionHost = new ContentControl();
 
@@ -318,7 +318,7 @@ public sealed class MainWindow : Window
 
         var label = new TextBlock
         {
-            Text = "Hold to dictate",
+            Text = "Click to dictate",
             FontFamily = Tokens.Fonts.Grotesque,
             FontSize = Tokens.Fonts.Pill,
             FontWeight = FontWeight.SemiBold,
@@ -421,22 +421,49 @@ public sealed class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    private static Button BuildTab(string label, bool engaged)
+    /// <summary>Tracks a tab's text and engagement so hover never fights the selected state.</summary>
+    private sealed class TabState
     {
-        var tab = new Button
+        public required TextBlock Label { get; init; }
+        public bool Engaged;
+    }
+
+    /// <summary>
+    /// A tab as a plain Border: the Fluent Button theme paints its own hover square over
+    /// any custom styling, which is the tight, amateurish highlight; a Border gives the
+    /// soft pill fill instead.
+    /// </summary>
+    private static Border BuildTab(string label, bool engaged)
+    {
+        var text = new TextBlock
         {
-            Content = label,
+            Text = label,
             FontFamily = Tokens.Fonts.Grotesque,
             FontSize = Tokens.Fonts.Body,
             FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal,
             Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8),
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0, 0, 0, 2),
-            BorderBrush = engaged ? Tokens.Brushes.Accent : Brushes.Transparent,
-            Padding = new Thickness(2, 0, 2, Tokens.Space.Snug),
-            CornerRadius = new CornerRadius(0),
-            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
         };
+
+        var tab = new Border
+        {
+            Child = text,
+            Tag = new TabState { Label = text, Engaged = engaged },
+            Background = engaged ? Tokens.Brushes.GlassStrong : Brushes.Transparent,
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Snug),
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+
+        tab.PointerEntered += (_, _) =>
+        {
+            if (tab.Tag is TabState { Engaged: false }) tab.Background = Tokens.Brushes.GlassSoft;
+        };
+        tab.PointerExited += (_, _) =>
+        {
+            if (tab.Tag is TabState { Engaged: false }) tab.Background = Brushes.Transparent;
+        };
+
         return tab;
     }
 
@@ -509,11 +536,15 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static void SetTabEngaged(Button tab, bool engaged)
+    private static void SetTabEngaged(Border tab, bool engaged)
     {
-        tab.FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal;
-        tab.Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8);
-        tab.BorderBrush = engaged ? Tokens.Brushes.Accent : Brushes.Transparent;
+        if (tab.Tag is not TabState state) return;
+        state.Engaged = engaged;
+        state.Label.FontWeight = engaged ? FontWeight.Medium : FontWeight.Normal;
+        state.Label.Foreground = engaged
+            ? Tokens.Brushes.Ink
+            : new SolidColorBrush(Tokens.Colors.InkSecondary, 0.8);
+        tab.Background = engaged ? Tokens.Brushes.GlassStrong : Brushes.Transparent;
     }
 
     /// <summary>
@@ -572,7 +603,7 @@ public sealed class MainWindow : Window
         }
 
         _wasRecordingVisual = recording;
-        _heroLabel.Text = recording ? "Listening…" : "Hold to dictate";
+        _heroLabel.Text = recording ? "Listening…" : "Click to dictate";
         _recordingVisual = recording;
         UpdatePillBrush();
 
@@ -588,10 +619,14 @@ public sealed class MainWindow : Window
     {
         if (recording)
         {
+            // Perceptual curve on the meter: a sqrt lifts quiet microphones into visible
+            // movement (level 0.04 -> 0.2) while the top of the scale still means 1.0. The
+            // raw level stays untouched — this is a display transform, not audio gain.
+            var perceived = Math.Sqrt(Math.Max(0, level));
             for (var i = 0; i < _waveBars.Length; i++)
             {
                 var wiggle = (Random.Shared.NextDouble() * 0.5) + 0.25;
-                var height = 4 + (level * 20 * wiggle);
+                var height = 4 + (perceived * 20 * wiggle);
                 _waveBars[i].Height = Math.Clamp(height, 4, 22);
                 _waveBars[i].Fill = Tokens.Brushes.RecordBar;
             }
