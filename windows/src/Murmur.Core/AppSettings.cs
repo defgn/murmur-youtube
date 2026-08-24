@@ -4,94 +4,72 @@ using System.Text.Json.Serialization;
 namespace Murmur.Core;
 
 /// <summary>User preferences.</summary>
-public sealed record SettingsData
-{
-    /// <summary>
-    /// Virtual-key code of the push-to-talk key. Defaults to Right Ctrl (0xA3).
-    /// </summary>
-    /// <remarks>
-    /// <b>Not Right Alt.</b> On German, Polish, UK, Nordic and most Latin-American layouts
-    /// Right Alt is AltGr — it is how those users type <c>@</c>, <c>€</c>, <c>\</c> and
-    /// <c>|</c>. Right Ctrl produces no character on any layout.
-    /// </remarks>
-    public int PushToTalkKey { get; init; } = 0xA3;
-
-    /// <summary>
-    /// Which speech model to use: "Accurate" (Parakeet TDT 0.6B, ~660 MB, the best
-    /// accuracy) or "Compact" (Parakeet CTC 110M, ~126 MB, ~4× faster). Compact is the
-    /// default since v20: it measures as accurate on test speech and keeps Woffle lean;
-    /// flip to Accurate if real-world dictation ever drops. Applies on the next launch.
-    /// </summary>
-    public string SpeechModel { get; init; } = "Compact";
-
-    /// <summary>Where the speech model lives, or null to search the default locations.</summary>
-    public string? ModelDirectory { get; init; }
-
-    /// <summary>
-    /// The WASAPI endpoint id of the microphone to capture from, or null for the system
-    /// default. Persisted so a multi-mic setup picks the same mic every launch.
-    /// </summary>
-    public string? InputDeviceId { get; init; }
-
-    /// <summary>Linear gain applied to captured audio. 1.0 is unity (no boost).</summary>
-    public float InputGain { get; init; } = 1f;
-
-    /// <summary>Whether to type the transcript into the focused app.</summary>
-    public bool InjectText { get; init; } = true;
-
-    /// <summary>
-    /// Whether to strip spoken disfluencies ("um", "er", "uh", "actually,") from
-    /// transcripts — the Wispr Flow-style clean-up.
-    /// </summary>
-    public bool RemoveFillers { get; init; } = true;
-
-    /// <summary>
-    /// Whether to resolve spoken quantity corrections ("three potatoes no one potato no
-    /// three minus one potatoes" → "2 potatoes") — the Wispr-style arithmetic trick.
-    /// </summary>
-    public bool SimplifyArithmetic { get; init; } = true;
-
-    /// <summary>
-    /// Whether to run the optional local-AI cleanup pass over the finished transcript.
-    /// On by default since v16: the bundled model makes it self-contained. It adds roughly
-    /// a second per dictation; the deterministic passes are always the baseline.
-    /// </summary>
-    public bool SmartClean { get; init; } = true;
-
-    /// <summary>
-    /// Which local model serves the smart pass: "Bundled" (the GGUF shipped in the zip —
-    /// self-contained, default) or "Ollama" (a model already running in Ollama on this PC).
-    /// </summary>
-    public string SmartCleanBackend { get; init; } = "Bundled";
-
-    /// <summary>
-    /// The Ollama model tag for the smart pass, or null/empty to auto-pick the first
-    /// installed model.
-    /// </summary>
-    public string? SmartCleanModel { get; init; }
-
-    /// <summary>Whether to keep a transcript history.</summary>
-    public bool KeepHistory { get; init; } = true;
-
-    /// <summary>
-    /// Command Mode's hold-to-speak key (0xA1 = Right Shift). Hold it, say what to do with
-    /// the selected text ("make this more formal"), and the selection is rewritten in
-    /// place. Applies on the next launch, like <see cref="PushToTalkKey"/>.
-    /// </summary>
-    public int CommandKey { get; init; } = 0xA1;
-
-    /// <summary>
-    /// What the window close button does. Null = the user has not decided yet and the first
-    /// close asks; true = hide to the notification area and keep dictating; false = quit.
-    /// </summary>
-    public bool? CloseToTray { get; init; }
-
-    /// <summary>
-    /// Whether to unload the speech model after a period of no dictation. An idle Woffle
-    /// should not be holding 660 MB; the next dictation pays a ~2s reload.
-    /// </summary>
-    public bool UnloadWhenIdle { get; init; } = true;
-}
+/// <param name="PushToTalkKey">
+/// Virtual-key code of the push-to-talk key (0xA3 = Right Ctrl). <b>Not Right Alt:</b> on
+/// German, Polish, UK, Nordic and most Latin-American layouts Right Alt is AltGr — it is how
+/// those users type <c>@</c>, <c>€</c>, <c>\\</c> and <c>|</c>. Right Ctrl produces no
+/// character on any layout.
+/// </param>
+/// <param name="SpeechModel">
+/// Which speech model to use: "Accurate" (Parakeet TDT 0.6B, ~660 MB) or "Compact"
+/// (Parakeet CTC 110M, ~126 MB, ~4× faster — the default since v20).
+/// </param>
+/// <param name="ModelDirectory">Where the speech model lives, or null to search the defaults.</param>
+/// <param name="InputDeviceId">
+/// The WASAPI endpoint id of the microphone, or null for the system default.
+/// </param>
+/// <param name="InputGain">Linear gain applied to captured audio. 1.0 is unity.</param>
+/// <param name="InjectText">Whether to type the transcript into the focused app.</param>
+/// <param name="RemoveFillers">Whether to strip spoken disfluencies ("um", "er", "actually,").</param>
+/// <param name="SimplifyArithmetic">
+/// Whether to resolve spoken quantity corrections ("three potatoes no one potato no three
+/// minus one potatoes" → "2 potatoes").
+/// </param>
+/// <param name="SmartClean">
+/// Whether to run the optional local-AI cleanup pass over the finished transcript.
+/// </param>
+/// <param name="SmartCleanBackend">
+/// Which local model serves the smart pass: "Bundled" (the GGUF shipped in the zip) or
+/// "Ollama" (a model already running in Ollama on this PC).
+/// </param>
+/// <param name="SmartCleanModel">
+/// The Ollama model tag, or null/empty to auto-pick the first installed model.
+/// </param>
+/// <param name="KeepHistory">Whether to keep a transcript history.</param>
+/// <param name="CommandKey">
+/// Command Mode's hold-to-speak key (0xA1 = Right Shift).
+/// </param>
+/// <param name="CloseToTray">
+/// What the window close button does. Null = the user has not decided yet and the first
+/// close asks; true = hide to the notification area; false = quit.
+/// </param>
+/// <param name="UnloadWhenIdle">
+/// Whether to unload the speech model after a period of no dictation.
+/// </param>
+/// <remarks>
+/// <para>
+/// A positional record on purpose: System.Text.Json binds missing JSON fields to
+/// <i>constructor parameter defaults</i>, which init-only property initializers do not
+/// provide — before this shape, a settings file without the newer fields silently loaded
+/// them as zero/null (CommandKey 0 = a dead command hotkey) and re-saved that corruption.
+/// </para>
+/// </remarks>
+public sealed record SettingsData(
+    int PushToTalkKey = 0xA3,
+    string SpeechModel = "Compact",
+    string? ModelDirectory = null,
+    string? InputDeviceId = null,
+    float InputGain = 1f,
+    bool InjectText = true,
+    bool RemoveFillers = true,
+    bool SimplifyArithmetic = true,
+    bool SmartClean = true,
+    string SmartCleanBackend = "Bundled",
+    string? SmartCleanModel = null,
+    bool KeepHistory = true,
+    int CommandKey = 0xA1,
+    bool? CloseToTray = null,
+    bool UnloadWhenIdle = true);
 
 /// <summary>Settings, persisted as JSON.</summary>
 public sealed class AppSettings
@@ -135,8 +113,19 @@ public sealed class AppSettings
         {
             if (!File.Exists(path)) return new SettingsData();
 
-            return JsonSerializer.Deserialize(File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
-                   ?? new SettingsData();
+            var data = JsonSerializer.Deserialize(
+                File.ReadAllText(path), SettingsJsonContext.Default.SettingsData)
+                ?? new SettingsData();
+
+            // Heal files corrupted by an older deserializer bug: before the record carried
+            // constructor defaults, missing JSON fields deserialized to default(T) — 0 for
+            // the keys, null for the strings — and were then re-saved that way. A zero
+            // CommandKey is a dead command hotkey; a null SpeechModel falls back to Compact.
+            if (data.CommandKey == 0) data = data with { CommandKey = 0xA1 };
+            if (data.PushToTalkKey == 0) data = data with { PushToTalkKey = 0xA3 };
+            if (data.SpeechModel is null) data = data with { SpeechModel = "Compact" };
+            if (data.SmartCleanBackend is null) data = data with { SmartCleanBackend = "Bundled" };
+            return data;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {

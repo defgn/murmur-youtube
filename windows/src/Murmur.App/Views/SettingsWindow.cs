@@ -516,8 +516,10 @@ public sealed class SettingsWindow : Window
 
     private static void SetSelectable(Button button, bool engaged)
     {
-        button.Foreground = engaged ? Tokens.Brushes.Ink : new SolidColorBrush(Tokens.Colors.InkSecondary);
-        button.Background = engaged ? Tokens.Brushes.GlassStrong : Brushes.Transparent;
+        // Engaged = filled accent + white text: the selected option must be obvious at a
+        // glance, not a hairline border that only shows when you look for it.
+        button.Foreground = engaged ? Brushes.White : new SolidColorBrush(Tokens.Colors.InkSecondary);
+        button.Background = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : Brushes.Transparent;
         button.BorderBrush = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : new SolidColorBrush(Tokens.Colors.Seam);
         button.BorderThickness = new Thickness(1);
     }

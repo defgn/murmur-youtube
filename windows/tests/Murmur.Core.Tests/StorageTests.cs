@@ -237,4 +237,36 @@ public sealed class AppSettingsTests : IDisposable
 
         new AppSettings(_path).Data.PushToTalkKey.ShouldBe(0xA3);
     }
+
+    [Fact]
+    public void Missing_fields_get_the_constructor_defaults_not_zero()
+    {
+        // Regression: an init-only record deserializes missing fields to default(T) — a
+        // settings file without the newer fields loaded CommandKey as 0 (a dead command
+        // hotkey) and re-saved the corruption. The positional record binds missing fields
+        // to the constructor parameter defaults instead.
+        File.WriteAllText(_path, """{ "PushToTalkKey": 163 }""");
+
+        var data = new AppSettings(_path).Data;
+
+        data.CommandKey.ShouldBe(0xA1, "a missing command key must not deserialize to 0");
+        data.SpeechModel.ShouldBe("Compact");
+        data.SmartCleanBackend.ShouldBe("Bundled");
+    }
+
+    [Fact]
+    public void Corrupted_zero_values_are_healed_on_load()
+    {
+        // Files written by older builds persisted the zero/null corruption; loading must
+        // heal them rather than hand the engine a dead hotkey.
+        File.WriteAllText(_path, """
+            { "CommandKey": 0, "SpeechModel": null, "SmartCleanBackend": null }
+            """);
+
+        var data = new AppSettings(_path).Data;
+
+        data.CommandKey.ShouldBe(0xA1);
+        data.SpeechModel.ShouldBe("Compact");
+        data.SmartCleanBackend.ShouldBe("Bundled");
+    }
 }

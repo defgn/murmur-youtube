@@ -61,6 +61,21 @@ public sealed class Composition : IAsyncDisposable
     public static bool IsModelInstalled => ParakeetTranscriber.Locate() is not null;
 
     /// <summary>
+    /// Resolves the model directory for the chosen speech model, or null.
+    /// </summary>
+    /// <remarks>
+    /// The setting is respected exactly: there is deliberately <b>no</b> silent fallback to
+    /// the other model. A missing compact model reports as not installed rather than
+    /// quietly loading 660 MB — the user asked for the small one, and the memory is the
+    /// point.
+    /// </remarks>
+    public static string? ResolveModelDirectory(SettingsData settings) =>
+        settings.ModelDirectory
+        ?? (string.Equals(settings.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase)
+            ? ParakeetTranscriber.Locate(ParakeetTranscriber.AccurateFolder)
+            : ParakeetTranscriber.Locate(ParakeetTranscriber.CompactFolder));
+
+    /// <summary>
     /// Selects the microphone and gain, persists them, and applies them to the running
     /// engine immediately (the capture reads the device at the start of each recording).
     /// </summary>
@@ -88,11 +103,7 @@ public sealed class Composition : IAsyncDisposable
 
         if (available)
         {
-            var modelDirectory = settings.Data.ModelDirectory
-                ?? (string.Equals(settings.Data.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase)
-                    ? ParakeetTranscriber.Locate(ParakeetTranscriber.AccurateFolder)
-                    : ParakeetTranscriber.Locate(ParakeetTranscriber.CompactFolder))
-                ?? ParakeetTranscriber.Locate();
+            var modelDirectory = ResolveModelDirectory(settings.Data);
 
             ITranscriber transcriber = modelDirectory is not null
                 ? new ParakeetTranscriber(modelDirectory)

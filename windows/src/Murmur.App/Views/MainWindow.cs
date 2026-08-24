@@ -8,6 +8,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using Murmur.App.Design;
 using Murmur.Core;
+using Murmur.Speech;
 
 namespace Murmur.App.Views;
 
@@ -143,13 +144,7 @@ public sealed class MainWindow : Window
         {
             // Engine notices arrive on a background thread; the panel is UI-thread-only.
             _composition.Engine.Notice += (_, message) =>
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _subLine.Text = message;
-                    _subLine.IsVisible = true;
-                    _noticeTimer.Stop();
-                    _noticeTimer.Start();
-                });
+                Dispatcher.UIThread.Post(() => ShowNotice(message));
 
             // Live preview text while the key is held.
             _composition.Engine.PartialTranscript += (_, text) =>
@@ -168,7 +163,7 @@ public sealed class MainWindow : Window
         root.Children.Add(Panels.Docked(BuildHero(), Dock.Top));
         root.Children.Add(Panels.Docked(BuildTabs(), Dock.Top));
 
-        if (_composition is not null && !Composition.IsModelInstalled)
+        if (_composition is not null)
         {
             root.Children.Add(Panels.Docked(BuildModelBanner(), Dock.Top));
         }
@@ -476,38 +471,47 @@ public sealed class MainWindow : Window
     };
 
     /// <summary>
-    /// A standing notice that the app cannot transcribe yet.
+    /// A standing card naming the speech model in use — or a clear not-installed message.
     /// </summary>
     /// <remarks>
-    /// Windows has no built-in engine to fall back on, so a missing model means the app does
-    /// nothing at all. That has to be visible on the front panel rather than buried in
-    /// Settings.
+    /// The name matters: it is the fastest way to tell whether the app is actually running
+    /// the model the user chose, and it exposes the memory story on the front panel.
     /// </remarks>
-    private static Border BuildModelBanner() => Panels.Card(new StackPanel
+    private Border BuildModelBanner()
     {
-        Orientation = Orientation.Horizontal,
-        Spacing = Tokens.Space.Base,
-        Margin = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Base),
-        Children =
+        var isAccurate = string.Equals(
+            _composition?.Settings.Data.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase);
+        var folder = isAccurate ? ParakeetTranscriber.AccurateFolder : ParakeetTranscriber.CompactFolder;
+        var installed = ParakeetTranscriber.Locate(folder) is not null;
+
+        return Panels.Card(new StackPanel
         {
-            new Ellipse
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Base,
+            Margin = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Base),
+            Children =
             {
-                Width = 8,
-                Height = 8,
-                Fill = new SolidColorBrush(Tokens.Colors.MeterAmber),
-                VerticalAlignment = VerticalAlignment.Center,
+                new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = installed ? Tokens.Brushes.Success : new SolidColorBrush(Tokens.Colors.MeterAmber),
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+                new TextBlock
+                {
+                    Text = installed
+                        ? $"Speech model: {(isAccurate ? "Accurate 0.6B" : "Compact 110M")} — switch in Settings → Model"
+                        : "Speech model not installed — Woffle cannot transcribe yet. See Settings.",
+                    FontFamily = Tokens.Fonts.Grotesque,
+                    FontSize = Tokens.Fonts.Label,
+                    Foreground = Tokens.Brushes.Ink,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
             },
-            new TextBlock
-            {
-                Text = "Speech model not installed — Woffle cannot transcribe yet. See Settings.",
-                FontFamily = Tokens.Fonts.Grotesque,
-                FontSize = Tokens.Fonts.Label,
-                Foreground = Tokens.Brushes.Ink,
-                TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
-        },
-    });
+        });
+    }
 
     private void ShowSection(bool transcriptions)
     {
@@ -568,12 +572,26 @@ public sealed class MainWindow : Window
         if (keep.Value)
         {
             Hide();
+
+            // The single most confusing behaviour in the app: the X did nothing visible.
+            // Never let it be silent — say where the app went and how to really quit.
+            ShowNotice("Woffle is still running in the notification area. Quit from the tray "
+                     + "icon, or make the X quit in Settings → Behaviour.");
         }
         else
         {
             _closeApproved = true;
             Close();
         }
+    }
+
+    /// <summary>A transient message under the pill; vanishes after a few seconds.</summary>
+    private void ShowNotice(string message)
+    {
+        _subLine.Text = message;
+        _subLine.IsVisible = true;
+        _noticeTimer.Stop();
+        _noticeTimer.Start();
     }
 
     private void ShowSettings()
