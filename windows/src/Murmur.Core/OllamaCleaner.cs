@@ -54,7 +54,28 @@ public sealed class OllamaCleaner : ISmartCleaner, IDisposable
     }
 
     /// <inheritdoc />
-    public async Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+    public Task<string?> CleanAsync(string text, CancellationToken cancellationToken) =>
+        CompleteAsync(
+            "You clean up dictated transcripts for typing into a document. " +
+            "Fix punctuation, capitalization and spacing. Resolve spoken self-corrections " +
+            "and arithmetic (\"three potatoes no one potato no three minus one potatoes\" " +
+            "becomes \"2 potatoes\"). Remove spoken fillers like um and er. " +
+            "Never invent, add or drop information: no new numbers, names or facts. " +
+            "Keep the meaning and language exactly. Reply with only the cleaned text.",
+            text, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<string?> TransformAsync(string instruction, string text, CancellationToken cancellationToken) =>
+        CompleteAsync(
+            "You rewrite selected text according to a spoken instruction. " +
+            "Follow the instruction exactly (make it more formal, turn it into bullet points, " +
+            "fix the grammar, shorten it). Keep the meaning and all facts; never invent " +
+            "information. Reply with only the rewritten text, no commentary.",
+            $"Selected text:\n{text}\n\nInstruction: {instruction}", cancellationToken);
+
+    /// <summary>One chat round-trip: system prompt, user text, greedy decoding.</summary>
+    private async Task<string?> CompleteAsync(
+        string systemPrompt, string userText, CancellationToken cancellationToken)
     {
         try
         {
@@ -62,14 +83,8 @@ public sealed class OllamaCleaner : ISmartCleaner, IDisposable
             if (model is null) return null;
 
             var request = new OllamaChatRequest(model, [
-                new OllamaChatMessage("system",
-                    "You clean up dictated transcripts for typing into a document. " +
-                    "Fix punctuation, capitalization and spacing. Resolve spoken self-corrections " +
-                    "and arithmetic (\"three potatoes no one potato no three minus one potatoes\" " +
-                    "becomes \"2 potatoes\"). Remove spoken fillers like um and er. " +
-                    "Never invent, add or drop information: no new numbers, names or facts. " +
-                    "Keep the meaning and language exactly. Reply with only the cleaned text."),
-                new OllamaChatMessage("user", text),
+                new OllamaChatMessage("system", systemPrompt),
+                new OllamaChatMessage("user", userText),
             ]);
 
             using var response = await _http

@@ -15,12 +15,23 @@ namespace Murmur.Abstractions;
 /// timeout, model missing) so the caller falls back to the deterministic text — a cleanup
 /// pass that invents content is worse than no cleanup at all.
 /// </para>
+/// <para>
+/// Implementations own a model or service connection and release it in
+/// <see cref="IDisposable.Dispose"/>.
+/// </para>
 /// </remarks>
-public interface ISmartCleaner
+public interface ISmartCleaner : IDisposable
 {
     /// <summary>
     /// Cleans <paramref name="text"/>, or returns null when the cleaner cannot run and the
     /// deterministic result should stand.
     /// </summary>
     Task<string?> CleanAsync(string text, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rewrites <paramref name="text"/> per a spoken <paramref name="instruction"/> —
+    /// Command Mode ("make this more formal"). Returns the rewritten text, or null when
+    /// the pass could not run or the model declined to change anything.
+    /// </summary>
+    Task<string?> TransformAsync(string instruction, string text, CancellationToken cancellationToken);
 }

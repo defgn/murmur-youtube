@@ -109,6 +109,23 @@ public sealed class FakeHotkeySource : IHotkeySource
     public void Dispose() => StopListening();
 }
 
+/// <summary>Returns a canned selection and records how often it was read.</summary>
+public sealed class FakeSelectionReader : ISelectionReader
+{
+    /// <summary>The selection the reader returns, or null for "nothing selected".</summary>
+    public string? Result { get; set; }
+
+    /// <summary>How many times the selection was read.</summary>
+    public int Calls { get; private set; }
+
+    /// <inheritdoc />
+    public Task<string?> ReadSelectedTextAsync(CancellationToken cancellationToken)
+    {
+        Calls++;
+        return Task.FromResult(Result);
+    }
+}
+
 /// <summary>Returns canned transcripts and records what it was asked to transcribe.</summary>
 /// <remarks>
 /// Enforces the transcriber contract: <see cref="TranscribeAsync"/> throws if called before
@@ -180,12 +197,30 @@ public sealed class FakeSmartCleaner : ISmartCleaner
     /// <summary>How many times the engine asked.</summary>
     public int Calls { get; private set; }
 
+    /// <summary>The instruction from the last <see cref="TransformAsync"/> call.</summary>
+    public string? LastInstruction { get; private set; }
+
+    /// <summary>The text from the last <see cref="TransformAsync"/> call.</summary>
+    public string? LastText { get; private set; }
+
     /// <inheritdoc />
     public Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
     {
         Calls++;
         return Task.FromResult(Result);
     }
+
+    /// <inheritdoc />
+    public Task<string?> TransformAsync(string instruction, string text, CancellationToken cancellationToken)
+    {
+        Calls++;
+        LastInstruction = instruction;
+        LastText = text;
+        return Task.FromResult(Result);
+    }
+
+    /// <inheritdoc />
+    public void Dispose() { }
 }
 
 /// <summary>

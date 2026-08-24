@@ -28,12 +28,14 @@ public sealed class Composition : IAsyncDisposable
         DictionaryFile dictionary,
         TranscriptStore transcripts,
         DictationEngine? engine,
+        CommandModeCoordinator? commandMode,
         bool platformAvailable)
     {
         Settings = settings;
         Dictionary = dictionary;
         Transcripts = transcripts;
         Engine = engine;
+        CommandMode = commandMode;
         IsPlatformAvailable = platformAvailable;
     }
 
@@ -48,6 +50,9 @@ public sealed class Composition : IAsyncDisposable
 
     /// <summary>The dictation engine, or null when no platform layer is available.</summary>
     public DictationEngine? Engine { get; }
+
+    /// <summary>Command Mode, or null when no platform layer is available.</summary>
+    public CommandModeCoordinator? CommandMode { get; }
 
     /// <summary>Whether real audio and hotkey support were found.</summary>
     public bool IsPlatformAvailable { get; }
@@ -75,8 +80,10 @@ public sealed class Composition : IAsyncDisposable
         var capture = PlatformFactory.CreateAudioCapture(settings.Data.InputDeviceId);
         var hotkey = PlatformFactory.CreateHotkeySource(settings.Data.PushToTalkKey);
         var injector = PlatformFactory.CreateTextInjector();
+        var selectionReader = PlatformFactory.CreateSelectionReader();
 
         DictationEngine? engine = null;
+        CommandModeCoordinator? commandMode = null;
         var available = capture is not null && hotkey is not null && injector is not null;
 
         if (available)
@@ -87,6 +94,10 @@ public sealed class Composition : IAsyncDisposable
                 ? new ParakeetTranscriber(modelDirectory)
                 : new UnavailableTranscriber();
 
+            // Command Mode has its own hook and its own cleaner: the model loads on demand
+            // for a command, so the feature works even with Smart cleanup switched off.
+            var commandHotkey = PlatformFactory.CreateHotkeySource(settings.Data.CommandKey);
+
             engine = new DictationEngine(
                 capture!, hotkey!, transcriber, injector!,
                 () => dictionary.Entries,
@@ -96,8 +107,12 @@ public sealed class Composition : IAsyncDisposable
                 smartCleaner: settings.Data.SmartClean
                     ? BuildSmartCleaner(settings)
                     : null,
-                idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero);
+                idleUnloadTimeout: settings.Data.UnloadWhenIdle ? TimeSpan.FromMinutes(5) : TimeSpan.Zero,
+                commandHotkey: commandHotkey);
 
+            commandMode = new CommandModeCoordinator(
+                engine, BuildSmartCleaner(settings), injector, selectionReader,
+                engine.Notify);
             // Persisted mic choice + boost apply live, without a restart.
             engine.ConfigureInput(settings.Data.InputDeviceId, settings.Data.InputGain);
 
@@ -116,7 +131,7 @@ public sealed class Composition : IAsyncDisposable
             };
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, available);
+        return new Composition(settings, dictionary, transcripts, engine, commandMode, available);
     }
 
     /// <summary>
@@ -132,6 +147,7 @@ public sealed class Composition : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Engine is not null) await Engine.DisposeAsync().ConfigureAwait(false);
+        CommandMode?.Dispose();
     }
 }
 

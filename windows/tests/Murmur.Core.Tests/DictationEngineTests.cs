@@ -239,6 +239,55 @@ public sealed class DictationEngineTests
     }
 
     [Fact]
+    public async Task Command_key_records_and_raises_CommandRequested_without_typing()
+    {
+        var dictationHotkey = new FakeHotkeySource();
+        var commandHotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("make this more formal");
+        var injector = new RecordingTextInjector();
+        var completed = 0;
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), dictationHotkey, transcriber, injector,
+            () => [], new FakeClock(), removeFillers: true, commandHotkey: commandHotkey);
+
+        var commands = new List<string>();
+        engine.CommandRequested += (_, instruction) => commands.Add(instruction);
+        engine.Completed += (_, _) => completed++;
+
+        await DictateAsync(commandHotkey, engine);
+
+        // The instruction is cleaned like any transcript, but it is a command, not
+        // dictation: nothing is typed, stored, or completed.
+        commands.ShouldBe(["Make this more formal."]);
+        injector.Injected.ShouldBeEmpty();
+        completed.ShouldBe(0);
+        engine.State.ShouldBe(DictationState.Idle);
+        engine.CommandModeActive.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Command_silence_raises_nothing()
+    {
+        var dictationHotkey = new FakeHotkeySource();
+        var commandHotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("   ");
+        var injector = new RecordingTextInjector();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), dictationHotkey, transcriber, injector,
+            () => [], new FakeClock(), removeFillers: true, commandHotkey: commandHotkey);
+
+        var commands = new List<string>();
+        engine.CommandRequested += (_, instruction) => commands.Add(instruction);
+
+        await DictateAsync(commandHotkey, engine);
+
+        commands.ShouldBeEmpty();
+        injector.Injected.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Idle_model_unload_frees_the_recognizer_and_the_next_dictation_reloads_it()
     {
         var hotkey = new FakeHotkeySource();

@@ -131,6 +131,10 @@ internal static class PlatformFactory
     public static ITextInjector? CreateTextInjector() =>
         Create<ITextInjector>("SendInputTextInjector", []);
 
+    /// <summary>Creates the selection reader (Command Mode's input), or null off Windows.</summary>
+    public static ISelectionReader? CreateSelectionReader() =>
+        Create<ISelectionReader>("ClipboardSelectionReader", []);
+
     [UnconditionalSuppressMessage(
         "Trimming",
         "IL2026:RequiresUnreferencedCode",

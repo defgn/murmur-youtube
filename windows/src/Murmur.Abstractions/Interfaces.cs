@@ -92,6 +92,20 @@ public interface ITextInjector
     ValueTask<bool> InjectAsync(string text, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Reads the text currently selected in the focused application — Command Mode's input.
+/// </summary>
+/// <remarks>
+/// Windows reads it via UI Automation first (which never disturbs the clipboard), with a
+/// clipboard copy as fallback for controls that do not expose their selection. Returns null
+/// when no selection can be read.
+/// </remarks>
+public interface ISelectionReader
+{
+    /// <summary>Returns the selected text, or null when nothing is selected or readable.</summary>
+    Task<string?> ReadSelectedTextAsync(CancellationToken cancellationToken);
+}
+
 /// <summary>Turns audio into text.</summary>
 public interface ITranscriber : IAsyncDisposable
 {

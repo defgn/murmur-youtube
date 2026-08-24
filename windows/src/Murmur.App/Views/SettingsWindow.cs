@@ -37,6 +37,7 @@ public sealed class SettingsWindow : Window
     private readonly Composition _composition;
     private readonly AppSettings _settings;
     private readonly StackPanel _keyRow;
+    private readonly StackPanel _commandKeyRow;
     private readonly TextBlock _keyWarning;
     private readonly StackPanel _micRow;
     private readonly TextBlock _micStatus;
@@ -81,6 +82,19 @@ public sealed class SettingsWindow : Window
             _keyRow.Children.Add(button);
         }
 
+        _commandKeyRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+        };
+
+        foreach (var (key, label, _) in Keys)
+        {
+            var button = Selectable(label);
+            button.Click += (_, _) => SelectCommandKey(key);
+            _commandKeyRow.Children.Add(button);
+        }
+
         _micRow = new StackPanel { Spacing = Tokens.Space.Tight };
         _micStatus = new TextBlock
         {
@@ -97,6 +111,7 @@ public sealed class SettingsWindow : Window
             Content = BuildContent(),
         };
         SelectKey(_settings.Data.PushToTalkKey, WarningFor(_settings.Data.PushToTalkKey));
+        SelectCommandKey(_settings.Data.CommandKey);
         RefreshMicrophones();
     }
 
@@ -123,6 +138,24 @@ public sealed class SettingsWindow : Window
                     _keyWarning,
                     Note("Hold this key anywhere to dictate. The key is passed through to the "
                        + "focused app rather than swallowed, so it never gets stuck down."),
+                },
+            }),
+
+            Section("Command mode", new StackPanel
+            {
+                Spacing = Tokens.Space.Snug,
+                Children =
+                {
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = Tokens.Space.Snug,
+                        Children = { _commandKeyRow },
+                    },
+                    Note("Select text in any app, hold this key, and speak what to do with it — "
+                       + "\"make this more formal\", \"turn it into bullet points\". Woffle rewrites "
+                       + "the selection in place. Must differ from the dictation key. Applies on "
+                       + "the next launch."),
                 },
             }),
 
@@ -325,6 +358,20 @@ public sealed class SettingsWindow : Window
         _keyWarning.IsVisible = warning is not null;
 
         if (_settings.Data.PushToTalkKey != key) Save(_settings.Data with { PushToTalkKey = key });
+    }
+
+    private void SelectCommandKey(int key)
+    {
+        // The two keys must not collide: the engine registers a hook per key, and two
+        // hooks on the same key would fight.
+        if (key == _settings.Data.PushToTalkKey) return;
+
+        for (var i = 0; i < Keys.Length; i++)
+        {
+            SetSelectable((Button)_commandKeyRow.Children[i], Keys[i].Key == key);
+        }
+
+        if (_settings.Data.CommandKey != key) Save(_settings.Data with { CommandKey = key });
     }
 
     private void Save(SettingsData data) => _settings.Update(data);

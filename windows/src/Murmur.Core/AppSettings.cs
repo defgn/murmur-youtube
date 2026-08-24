@@ -66,6 +66,13 @@ public sealed record SettingsData
     public bool KeepHistory { get; init; } = true;
 
     /// <summary>
+    /// Command Mode's hold-to-speak key (0xA1 = Right Shift). Hold it, say what to do with
+    /// the selected text ("make this more formal"), and the selection is rewritten in
+    /// place. Applies on the next launch, like <see cref="PushToTalkKey"/>.
+    /// </summary>
+    public int CommandKey { get; init; } = 0xA1;
+
+    /// <summary>
     /// What the window close button does. Null = the user has not decided yet and the first
     /// close asks; true = hide to the notification area and keep dictating; false = quit.
     /// </summary>

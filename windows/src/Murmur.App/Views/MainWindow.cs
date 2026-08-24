@@ -603,7 +603,9 @@ public sealed class MainWindow : Window
         }
 
         _wasRecordingVisual = recording;
-        _heroLabel.Text = recording ? "Listening…" : "Click to dictate";
+        _heroLabel.Text = recording
+            ? engine is { CommandModeActive: true } ? "Listening for a command…" : "Listening…"
+            : "Click to dictate";
         _recordingVisual = recording;
         UpdatePillBrush();
 

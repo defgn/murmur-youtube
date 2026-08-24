@@ -44,6 +44,8 @@ public sealed class DictationEngine : IAsyncDisposable
 {
     private readonly IAudioCapture _capture;
     private readonly IHotkeySource _hotkey;
+    private readonly IHotkeySource? _commandHotkey;
+    private bool _commandMode;
     private readonly ITranscriber _transcriber;
     private readonly ITextInjector _injector;
     private readonly IClock _clock;
@@ -125,6 +127,12 @@ public sealed class DictationEngine : IAsyncDisposable
     /// How long after the last dictation the model is unloaded (frees ~660 MB). Zero or
     /// negative disables unloading; the next dictation pays the reload.
     /// </param>
+    /// <param name="commandHotkey">
+    /// Optional second hotkey for Command Mode: hold it and speak what to do with the
+    /// selected text ("make this more formal"). The recording machinery is shared with
+    /// dictation; the transcript is raised as <see cref="CommandRequested"/> instead of
+    /// being typed.
+    /// </param>
     public DictationEngine(
         IAudioCapture capture,
         IHotkeySource hotkey,
@@ -136,7 +144,8 @@ public sealed class DictationEngine : IAsyncDisposable
         bool simplifyArithmetic = true,
         ISmartCleaner? smartCleaner = null,
         TimeSpan? partialInterval = null,
-        TimeSpan idleUnloadTimeout = default)
+        TimeSpan idleUnloadTimeout = default,
+        IHotkeySource? commandHotkey = null)
     {
         _capture = capture;
         _hotkey = hotkey;
@@ -149,14 +158,34 @@ public sealed class DictationEngine : IAsyncDisposable
         _smartCleaner = smartCleaner;
         _partialInterval = partialInterval ?? TimeSpan.FromSeconds(2);
         _idleUnloadTimeout = idleUnloadTimeout;
+        _commandHotkey = commandHotkey;
 
         _hotkey.Pressed += OnPressed;
         _hotkey.Released += OnReleased;
+
+        if (_commandHotkey is not null)
+        {
+            // A second hook instance: the events are distinguishable by which source they
+            // came from, so no identity needs to travel inside the event itself.
+            _commandHotkey.Pressed += (_, _) => _ = BeginAsync(commandMode: true);
+            _commandHotkey.Released += (_, _) => _ = EndAsync();
+        }
     }
 
-    /// <summary>Arms the hotkey.</summary>
+    /// <summary>Raised with a cleaned instruction when the command hotkey was used.</summary>
+    public event EventHandler<string>? CommandRequested;
+
+    /// <summary>
+    /// True while recording via the command hotkey (the hero shows a different prompt).
+    /// </summary>
+    public bool CommandModeActive { get; private set; }
+
+    /// <summary>Raises <see cref="Notice"/> — used by pieces wired outside the engine.</summary>
+    public void Notify(string message) => Notice?.Invoke(this, message);
+
+    /// <summary>Arms the hotkeys.</summary>
     /// <returns>False if the hook could not be installed.</returns>
-    public bool Start() => _hotkey.Start();
+    public bool Start() => _hotkey.Start() & (_commandHotkey?.Start() ?? true);
 
     /// <summary>
     /// Selects the microphone and input gain. Applied live: the capture reads the device
@@ -185,17 +214,19 @@ public sealed class DictationEngine : IAsyncDisposable
 
     private void OnReleased(object? sender, EventArgs e) => _ = EndAsync();
 
-    private async Task BeginAsync()
+    private async Task BeginAsync(bool commandMode = false)
     {
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (State != DictationState.Idle) return;
 
-            // A dictation is starting: cancel any pending idle unload so the model stays
+            // A recording is starting: cancel any pending idle unload so the model stays
             // warm for it.
             CancelIdleUnload();
 
+            _commandMode = commandMode;
+            CommandModeActive = commandMode;
             _buffer = [];
             _startedAt = _clock.Now;
             _recording = new CancellationTokenSource();
@@ -209,7 +240,12 @@ public sealed class DictationEngine : IAsyncDisposable
         try
         {
             // The live preview runs alongside the capture loop and dies with the recording.
-            _ = RunPartialLoopAsync(_recording!.Token);
+            // Command Mode has no preview: instructions are short and a partial every two
+            // seconds would only add latency.
+            if (!_commandMode)
+            {
+                _ = RunPartialLoopAsync(_recording!.Token);
+            }
 
             await foreach (var chunk in _capture.CaptureAsync(_recording!.Token).ConfigureAwait(false))
             {
@@ -281,6 +317,8 @@ public sealed class DictationEngine : IAsyncDisposable
         {
             _recording?.Dispose();
             _recording = null;
+            _commandMode = false;
+            CommandModeActive = false;
             SetState(DictationState.Idle);
 
             // A fresh idle countdown starts after every dictation.
@@ -401,6 +439,15 @@ public sealed class DictationEngine : IAsyncDisposable
         // partials would gain and lose periods as they grow.
         raw = SentenceFormatter.Format(raw);
         if (string.IsNullOrWhiteSpace(raw)) return;
+
+        // Command Mode: the transcript is an instruction, not dictation. Raise it and stop —
+        // no LLM polish (it is the LLM's instruction), no dictionary, no store, no typing.
+        // The coordinator reads the selection, rewrites it, and pastes it back.
+        if (_commandMode)
+        {
+            CommandRequested?.Invoke(this, raw);
+            return;
+        }
 
         // The optional local-AI pass polishes everything the deterministic passes cannot
         // name. It never runs on the live preview (that would spam the model every two
@@ -539,6 +586,7 @@ public sealed class DictationEngine : IAsyncDisposable
         _hotkey.Pressed -= OnPressed;
         _hotkey.Released -= OnReleased;
         _hotkey.Dispose();
+        _commandHotkey?.Dispose();
 
         if (_recording is not null)
         {

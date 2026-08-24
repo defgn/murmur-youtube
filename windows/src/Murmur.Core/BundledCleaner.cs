@@ -52,7 +52,28 @@ public sealed class BundledCleaner : ISmartCleaner, IDisposable
     public static string? Locate() => DefaultSearchPaths().FirstOrDefault(File.Exists);
 
     /// <inheritdoc />
-    public async Task<string?> CleanAsync(string text, CancellationToken cancellationToken)
+    public Task<string?> CleanAsync(string text, CancellationToken cancellationToken) =>
+        CompleteAsync(
+            "You clean up dictated transcripts for typing into a document. " +
+            "Fix punctuation, capitalization and spacing. Resolve spoken self-corrections " +
+            "and arithmetic (\"three potatoes no one potato no three minus one potatoes\" " +
+            "becomes \"2 potatoes\"). Remove spoken fillers like um and er. " +
+            "Never invent, add or drop information: no new numbers, names or facts. " +
+            "Keep the meaning and language exactly. Reply with only the cleaned text.",
+            text, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<string?> TransformAsync(string instruction, string text, CancellationToken cancellationToken) =>
+        CompleteAsync(
+            "You rewrite selected text according to a spoken instruction. " +
+            "Follow the instruction exactly (make it more formal, turn it into bullet points, " +
+            "fix the grammar, shorten it). Keep the meaning and all facts; never invent " +
+            "information. Reply with only the rewritten text, no commentary.",
+            $"Selected text:\n{text}\n\nInstruction: {instruction}", cancellationToken);
+
+    /// <summary>One generation: system prompt, user text, greedy decoding.</summary>
+    private async Task<string?> CompleteAsync(
+        string systemPrompt, string userText, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
@@ -67,10 +88,12 @@ public sealed class BundledCleaner : ISmartCleaner, IDisposable
                     return null;
                 }
 
-                var prompt = BuildPrompt(text);
+                var prompt = BuildPrompt(systemPrompt, userText);
                 var inference = new InferenceParams
                 {
-                    MaxTokens = 256,
+                    // 512, not 256: Command Mode rewrites selections that can be long, and
+                    // truncation would silently lose the tail of the rewrite.
+                    MaxTokens = 512,
                     SamplingPipeline = new GreedySamplingPipeline(),
                     AntiPrompts = new List<string> { "<|im_end|>" },
                 };
@@ -133,16 +156,11 @@ public sealed class BundledCleaner : ISmartCleaner, IDisposable
     }
 
     /// <summary>The Qwen2.5 chat template — identical instructions to the Ollama path.</summary>
-    private static string BuildPrompt(string text) =>
+    private static string BuildPrompt(string systemPrompt, string userText) =>
         "<|im_start|>system\n" +
-        "You clean up dictated transcripts for typing into a document. " +
-        "Fix punctuation, capitalization and spacing. Resolve spoken self-corrections " +
-        "and arithmetic (\"three potatoes no one potato no three minus one potatoes\" " +
-        "becomes \"2 potatoes\"). Remove spoken fillers like um and er. " +
-        "Never invent, add or drop information: no new numbers, names or facts. " +
-        "Keep the meaning and language exactly. Reply with only the cleaned text." +
+        systemPrompt +
         "<|im_end|>\n" +
-        "<|im_start|>user\n" + text + "<|im_end|>\n" +
+        "<|im_start|>user\n" + userText + "<|im_end|>\n" +
         "<|im_start|>assistant\n";
 
     /// <inheritdoc />
