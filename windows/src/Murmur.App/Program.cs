@@ -23,6 +23,16 @@ public static class Program
             return SelfTest.Run();
         }
 
+        // Single instance BEFORE any Avalonia initialization. A second launch that got as
+        // far as creating the app would register its own tray icon and then exit — a ghost
+        // icon whose Quit does nothing, which reads as "Woffle won't close".
+        using var instance = SingleInstance.Acquire();
+        if (instance is null)
+        {
+            SingleInstance.WakeRunningInstance();
+            return 0;
+        }
+
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

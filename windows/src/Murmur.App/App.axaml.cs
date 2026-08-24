@@ -13,19 +13,9 @@ public partial class App : Application, IDisposable
 {
     private Composition? _composition;
     private MainWindow? _main;
-    private Mutex? _singleInstance;
-    private EventWaitHandle? _showSignal;
-    private Thread? _signalThread;
 
-    /// <summary>Releases the single-instance handles.</summary>
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
-        _singleInstance?.Dispose();
-        _singleInstance = null;
-        _showSignal?.Dispose();
-        _showSignal = null;
-    }
+    /// <summary>No-op — the single-instance handle lives in Program.Main's using scope.</summary>
+    public void Dispose() => GC.SuppressFinalize(this);
 
     /// <inheritdoc />
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -45,14 +35,10 @@ public partial class App : Application, IDisposable
             try
             {
                 // Single instance, deliberately. Two dictation processes would fight over
-                // the push-to-talk hook and inject the same text twice. A second launch
-                // wakes the running instance instead of dying silently — a silent exit is
-                // indistinguishable from "the app won't launch".
-                if (!AcquireSingleInstance(desktop))
-                {
-                    base.OnFrameworkInitializationCompleted();
-                    return;
-                }
+                // the push-to-talk hook and inject the same text twice. The gate itself ran
+                // in Program.Main before any UI existed; this merely starts the listener
+                // that wakes the window on a second launch.
+                SingleInstance.StartShowSignalListener(() => Dispatcher.UIThread.Post(ShowMain));
 
                 _composition = Composition.Create();
                 _main = new MainWindow(_composition);
@@ -114,95 +100,8 @@ public partial class App : Application, IDisposable
         base.OnFrameworkInitializationCompleted();
     }
 
-    /// <summary>
-    /// Takes the single-instance mutex, or wakes the running instance and reports the
-    /// second launch. Returns false when another instance already owns the app.
-    /// </summary>
-    private bool AcquireSingleInstance(IClassicDesktopStyleApplicationLifetime desktop)
-    {
-        _singleInstance = new Mutex(initiallyOwned: true, "Local\\Woffle.SingleInstance", out var createdNew);
-        if (createdNew)
-        {
-            StartShowSignalListener();
-            return true;
-        }
-
-        WriteLog("single-instance", null);
-
-        // Ask the running instance to come to the front.
-        try
-        {
-            using var signal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\Woffle.ShowWindow");
-            signal.Set();
-        }
-        catch (Exception e)
-        {
-            WriteLog("single-instance signal", e);
-        }
-
-        // And tell the user why nothing new appeared — Win32 MessageBox because it must
-        // work before any Avalonia window exists.
-        try
-        {
-            _ = User32.MessageBox(IntPtr.Zero,
-                "Woffle is already running — its window has been brought to the front.",
-                "Woffle", 0x00000040 /* MB_ICONINFORMATION */);
-        }
-        catch (Exception e)
-        {
-            WriteLog("single-instance message", e);
-        }
-
-        Dispatcher.UIThread.Post(() => desktop.Shutdown());
-        return false;
-    }
-
-    /// <summary>Listens for "show yourself" signals from second launches.</summary>
-    private void StartShowSignalListener()
-    {
-        try
-        {
-            _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\Woffle.ShowWindow");
-        }
-        catch (PlatformNotSupportedException e)
-        {
-            // Named kernel objects are Windows-only. The show-signal is a nicety; the
-            // single-instance mutex already enforces exclusivity on Windows, so skip the
-            // listener rather than fail to launch anywhere else.
-            WriteLog("show signal unavailable", e);
-            return;
-        }
-
-        _signalThread = new Thread(() =>
-        {
-            try
-            {
-                while (_showSignal.WaitOne())
-                {
-                    try
-                    {
-                        Dispatcher.UIThread.Post(ShowMain);
-                    }
-                    catch (Exception e)
-                    {
-                        WriteLog("show signal", e);
-                    }
-                }
-            }
-            catch (ObjectDisposedException)
-            {
-                // Normal: shutdown disposed the handle.
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "Woffle show signal",
-        };
-        _signalThread.Start();
-    }
-
     /// <summary>Appends a line to the crash log, creating it if needed.</summary>
-    private static void WriteLog(string phase, Exception? error)
+    internal static void WriteLog(string phase, Exception? error)
     {
         try
         {
@@ -243,16 +142,27 @@ public partial class App : Application, IDisposable
         }
     });
 
-    private void OnTrayQuit(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
+    private void OnTrayQuit(object? sender, EventArgs e)
     {
-        // Real quit: bypass the close-to-tray interception, then shut down.
-        _main?.ApproveClose();
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        // The failsafe must not depend on the UI thread: if it is wedged, a posted
+        // shutdown never runs and the process survives in Task Manager. The tray callback
+        // arrives on a worker thread, so arm the kill from here.
+        _ = Task.Run(async () =>
         {
-            desktop.Shutdown();
-            GuaranteeExit();
-        }
-    });
+            await Task.Delay(TimeSpan.FromSeconds(1.5)).ConfigureAwait(false);
+            Environment.Exit(0);
+        });
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            // Real quit: bypass the close-to-tray interception, then shut down.
+            _main?.ApproveClose();
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                desktop.Shutdown();
+            }
+        });
+    }
 
     /// <summary>
     /// If anything in the shutdown path stalls (a native audio teardown, a stray dialog),
@@ -275,12 +185,5 @@ public partial class App : Application, IDisposable
         _main.Show();
         _main.WindowState = WindowState.Normal;
         _main.Activate();
-    }
-
-    /// <summary>Win32 message box, callable before any Avalonia window exists.</summary>
-    private static partial class User32
-    {
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        public static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
     }
 }
