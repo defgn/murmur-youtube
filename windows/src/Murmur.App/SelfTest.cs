@@ -91,7 +91,9 @@ public static class SelfTest
         Console.WriteLine($"  model: {located ?? "(not installed — expected on a clean runner)"}");
 
         var failures = Check("model search paths are absolute",
-            ParakeetTranscriber.DefaultSearchPaths().All(Path.IsPathRooted));
+            ParakeetTranscriber.DefaultSearchPaths(ParakeetTranscriber.AccurateFolder)
+                .Concat(ParakeetTranscriber.DefaultSearchPaths(ParakeetTranscriber.CompactFolder))
+                .All(Path.IsPathRooted));
 
         // The deeper check: does the model actually LOAD and TRANSCRIBE? A recognizer that
         // was never loaded returns empty text silently — the exact failure that unit tests

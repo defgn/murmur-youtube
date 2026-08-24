@@ -145,5 +145,14 @@ public sealed class OllamaCleaner : ISmartCleaner, IDisposable
     }
 
     /// <inheritdoc />
+    public bool CanUnload => false;
+
+    /// <inheritdoc />
+    public void Unload()
+    {
+        // The model lives in Ollama's own process; Woffle holds only an HTTP client.
+    }
+
+    /// <inheritdoc />
     public void Dispose() => _http.Dispose();
 }

@@ -314,7 +314,7 @@ public sealed class SettingsWindow : Window
         _composition.ConfigureInput(deviceId, _settings.Data.InputGain);
     }
 
-    private static StackPanel BuildModelSection()
+    private StackPanel BuildModelSection()
     {
         var located = ParakeetTranscriber.Locate();
         var found = located is not null;
@@ -343,16 +343,74 @@ public sealed class SettingsWindow : Window
             },
         };
 
+        // The speech model choice: compact by default since v20, accurate one click away.
+        var isAccurate = string.Equals(
+            _settings.Data.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase);
+
+        _compactModelButton = Selectable("Compact (126 MB)", !isAccurate);
+        _accurateModelButton = Selectable("Accurate (660 MB)", isAccurate);
+        _compactModelButton.Click += (_, _) => SelectSpeechModel("Compact");
+        _accurateModelButton.Click += (_, _) => SelectSpeechModel("Accurate");
+
+        var modelRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children = { _compactModelButton, _accurateModelButton },
+        };
+
+        _speechModelNote = new TextBlock
+        {
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        UpdateSpeechModelNote();
+
         var detail = found
             // Showing the resolved path matters: "model not found" is unactionable without
             // knowing which directory was actually checked.
             ? Note($"Loaded from {located}")
             : Note("Windows has no built-in speech engine equivalent to Apple's, so Woffle "
-                 + "cannot transcribe until the Parakeet model is downloaded (~661 MB). "
-                 + "See docs/PARAKEET-WINDOWS.md. Expected in:\n"
-                 + string.Join("\n", ParakeetTranscriber.DefaultSearchPaths()));
+                 + "cannot transcribe until a Parakeet model is downloaded (~126 MB compact "
+                 + "or ~661 MB accurate). See docs/PARAKEET-WINDOWS.md. Expected in:\n"
+                 + string.Join("\n",
+                     ParakeetTranscriber.DefaultSearchPaths(ParakeetTranscriber.AccurateFolder)
+                         .Concat(ParakeetTranscriber.DefaultSearchPaths(ParakeetTranscriber.CompactFolder))));
 
-        return new StackPanel { Spacing = Tokens.Space.Snug, Children = { status, detail } };
+        return new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children =
+            {
+                status,
+                Panels.Caption("SPEECH MODEL"),
+                modelRow,
+                _speechModelNote,
+                detail,
+            },
+        };
+    }
+
+    private void SelectSpeechModel(string model)
+    {
+        var isAccurate = model == "Accurate";
+        SetSelectable(_compactModelButton, !isAccurate);
+        SetSelectable(_accurateModelButton, isAccurate);
+        Save(_settings.Data with { SpeechModel = model });
+        UpdateSpeechModelNote();
+    }
+
+    private void UpdateSpeechModelNote()
+    {
+        var isAccurate = string.Equals(
+            _settings.Data.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase);
+        _speechModelNote.Text = isAccurate
+            ? "The best accuracy at the cost of ~660 MB of RAM. The compact model is the "
+              + "default — switch back if real-world dictation ever drops."
+            : "Parakeet 110M — measured as accurate on test speech, uses ~126 MB instead of "
+              + "~660 MB, and runs ~4× faster. Applies on the next launch.";
     }
 
     private void SelectKey(int key, string? warning)
@@ -469,6 +527,9 @@ public sealed class SettingsWindow : Window
     private TextBox _ollamaModelBox = null!;
     private TextBlock _smartNote = null!;
     private StackPanel _smartCleanSection = null!;
+    private Button _compactModelButton = null!;
+    private Button _accurateModelButton = null!;
+    private TextBlock _speechModelNote = null!;
 
     /// <summary>
     /// The smart-clean engine choice: the bundled GGUF (self-contained, default) or the

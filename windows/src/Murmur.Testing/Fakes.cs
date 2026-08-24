@@ -220,6 +220,15 @@ public sealed class FakeSmartCleaner : ISmartCleaner
     }
 
     /// <inheritdoc />
+    public bool CanUnload { get; set; } = true;
+
+    /// <inheritdoc />
+    public void Unload() => Unloaded = true;
+
+    /// <summary>Whether <see cref="Unload"/> was called — the idle-unload signal.</summary>
+    public bool Unloaded { get; private set; }
+
+    /// <inheritdoc />
     public void Dispose() => Disposed = true;
 
     /// <summary>Whether <see cref="Dispose"/> has been called — the model-freed signal.</summary>

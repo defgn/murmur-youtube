@@ -16,6 +16,14 @@ public sealed record SettingsData
     /// </remarks>
     public int PushToTalkKey { get; init; } = 0xA3;
 
+    /// <summary>
+    /// Which speech model to use: "Accurate" (Parakeet TDT 0.6B, ~660 MB, the best
+    /// accuracy) or "Compact" (Parakeet CTC 110M, ~126 MB, ~4× faster). Compact is the
+    /// default since v20: it measures as accurate on test speech and keeps Woffle lean;
+    /// flip to Accurate if real-world dictation ever drops. Applies on the next launch.
+    /// </summary>
+    public string SpeechModel { get; init; } = "Compact";
+
     /// <summary>Where the speech model lives, or null to search the default locations.</summary>
     public string? ModelDirectory { get; init; }
 

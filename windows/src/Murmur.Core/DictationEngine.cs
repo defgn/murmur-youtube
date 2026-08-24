@@ -340,7 +340,8 @@ public sealed class DictationEngine : IAsyncDisposable
 
     /// <summary>
     /// Arms the idle model unload: after <see cref="_idleUnloadTimeout"/> with no dictation,
-    /// the recognizer is disposed and its ~660 MB freed. The next dictation reloads it.
+    /// the recognizer is disposed and its ~660 MB freed, and the bundled LLM (if loaded)
+    /// frees its ~1 GB too. The next dictation reloads them.
     /// </summary>
     private async Task ArmIdleUnloadAsync()
     {
@@ -356,6 +357,7 @@ public sealed class DictationEngine : IAsyncDisposable
             if (cts.IsCancellationRequested || State != DictationState.Idle || !_transcriber.IsReady) return;
 
             await _transcriber.UnloadAsync().ConfigureAwait(false);
+            if (_smartCleaner is { CanUnload: true }) _smartCleaner.Unload();
             Notice?.Invoke(this,
                 "Speech model unloaded after being idle — the next dictation reloads it in a couple of seconds.");
         }

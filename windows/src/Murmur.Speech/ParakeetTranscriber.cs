@@ -4,13 +4,17 @@ using SherpaOnnx;
 namespace Murmur.Speech;
 
 /// <summary>
-/// NVIDIA Parakeet TDT, running locally through sherpa-onnx.
+/// The bundled speech model, via sherpa-onnx's offline recognizer. The model is an NVIDIA
+/// Parakeet export, quantized to int8 so it runs ~40× faster than real time on four
+/// threads.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Windows has no counterpart to Apple's <c>SpeechAnalyzer</c>, so unlike the macOS build —
-/// where Parakeet is an optional upgrade — this is the only engine, and the app cannot
-/// transcribe until the model files are downloaded. See <c>docs/PARAKEET-WINDOWS.md</c>.
+/// <b>Which model:</b> two Parakeet exports are shipped and auto-detected from the model
+/// directory's layout. The accurate one is the TDT 0.6B (encoder/decoder/joiner + 128
+/// feature dims, ~660 MB). The compact one is the TDT-CTC 110M (a single
+/// <c>model.int8.onnx</c>, 80 feature dims, ~126 MB, ~4× faster) — a genuine memory/speed
+/// option for machines that do not want half a gigabyte resident.
 /// </para>
 /// <para>
 /// <b>CPU only, deliberately.</b> sherpa-onnx ships no GPU package at all — setting a CUDA
@@ -32,46 +36,52 @@ public sealed class ParakeetTranscriber : ITranscriber
     /// <summary>Threads for inference. Four measured fastest; eight measured slower.</summary>
     private const int Threads = 4;
 
-    /// <summary>
-    /// Feature dimension. <b>Must be 128</b> — the library defaults to 80, which is wrong for
-    /// this model.
-    /// </summary>
-    private const int FeatureDim = 128;
+    /// <summary>The TDT 0.6B model folder name.</summary>
+    public const string AccurateFolder = "parakeet-v2";
 
-    /// <summary>
-    /// Model family. <b>Required.</b> Without it the model fails to load.
-    /// </summary>
-    private const string ModelType = "nemo_transducer";
+    /// <summary>The CTC 110M model folder name.</summary>
+    public const string CompactFolder = "parakeet-compact";
 
     private readonly string _modelDirectory;
     private OfflineRecognizer? _recognizer;
 
     /// <summary>Points the engine at a folder of model files.</summary>
     /// <param name="modelDirectory">
-    /// Must contain <c>encoder.int8.onnx</c>, <c>decoder.int8.onnx</c>,
-    /// <c>joiner.int8.onnx</c> and <c>tokens.txt</c>.
+    /// Must contain either the TDT 0.6B files (<c>encoder.int8.onnx</c>,
+    /// <c>decoder.int8.onnx</c>, <c>joiner.int8.onnx</c>, <c>tokens.txt</c>) or the CTC 110M
+    /// files (<c>model.int8.onnx</c>, <c>tokens.txt</c>). The layout selects the config.
     /// </param>
     public ParakeetTranscriber(string modelDirectory) => _modelDirectory = modelDirectory;
 
-    /// <summary>Where the model is looked for, in order.</summary>
+    /// <summary>Where the models are looked for, in order.</summary>
     /// <remarks>
     /// <c>%LOCALAPPDATA%</c> first: it needs no administrator rights, so the app can download
     /// and update the model itself even when installed under Program Files.
     /// </remarks>
-    public static IEnumerable<string> DefaultSearchPaths()
+    public static IEnumerable<string> DefaultSearchPaths(string folderName)
     {
         yield return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Woffle", "models", "parakeet-v2");
+            "Woffle", "models", folderName);
 
         // AppContext.BaseDirectory, not Assembly.Location — the latter returns an empty
         // string in a single-file app, which silently resolves paths against the current
         // directory instead.
-        yield return Path.Combine(AppContext.BaseDirectory, "models", "parakeet-v2");
+        yield return Path.Combine(AppContext.BaseDirectory, "models", folderName);
     }
 
-    /// <summary>Finds a directory containing a complete model, or null.</summary>
-    public static string? Locate() => DefaultSearchPaths().FirstOrDefault(IsComplete);
+    /// <summary>
+    /// Finds the first complete model directory, preferring the accurate layout, or null.
+    /// </summary>
+    public static string? Locate() =>
+        DefaultSearchPaths(AccurateFolder).FirstOrDefault(IsComplete)
+        ?? DefaultSearchPaths(CompactFolder).FirstOrDefault(IsComplete);
+
+    /// <summary>
+    /// Finds a complete directory for <paramref name="folderName"/> only, or null.
+    /// </summary>
+    public static string? Locate(string folderName) =>
+        DefaultSearchPaths(folderName).FirstOrDefault(IsComplete);
 
     /// <summary>Whether <paramref name="directory"/> holds every required file.</summary>
     /// <remarks>
@@ -79,14 +89,23 @@ public sealed class ParakeetTranscriber : ITranscriber
     /// parse error that reads like a corrupt build rather than a missing byte range.
     /// </remarks>
     public static bool IsComplete(string directory) =>
-        RequiredFiles.All(f => File.Exists(Path.Combine(directory, f)));
+        (RequiredTdtFiles.All(f => File.Exists(Path.Combine(directory, f)))
+         || RequiredCtcFiles.All(f => File.Exists(Path.Combine(directory, f))))
+        && File.Exists(Path.Combine(directory, "tokens.txt"));
 
-    /// <summary>The files the engine needs.</summary>
-    public static IReadOnlyList<string> RequiredFiles { get; } =
+    /// <summary>The files the accurate (TDT) layout needs.</summary>
+    public static IReadOnlyList<string> RequiredTdtFiles { get; } =
     [
         "encoder.int8.onnx",
         "decoder.int8.onnx",
         "joiner.int8.onnx",
+        "tokens.txt",
+    ];
+
+    /// <summary>The files the compact (CTC) layout needs.</summary>
+    public static IReadOnlyList<string> RequiredCtcFiles { get; } =
+    [
+        "model.int8.onnx",
         "tokens.txt",
     ];
 
@@ -101,16 +120,29 @@ public sealed class ParakeetTranscriber : ITranscriber
 
         var config = new OfflineRecognizerConfig();
         config.FeatConfig.SampleRate = AudioChunk.SampleRate;
-        config.FeatConfig.FeatureDim = FeatureDim;
-
-        config.ModelConfig.Transducer.Encoder = Path.Combine(_modelDirectory, "encoder.int8.onnx");
-        config.ModelConfig.Transducer.Decoder = Path.Combine(_modelDirectory, "decoder.int8.onnx");
-        config.ModelConfig.Transducer.Joiner = Path.Combine(_modelDirectory, "joiner.int8.onnx");
-        config.ModelConfig.Tokens = Path.Combine(_modelDirectory, "tokens.txt");
-        config.ModelConfig.ModelType = ModelType;
         config.ModelConfig.NumThreads = Threads;
         config.ModelConfig.Provider = "cpu";
         config.DecodingMethod = "greedy_search";
+
+        // The layout IS the model identity: the TDT transducer needs three ONNX files and
+        // 128 feature dims; the CTC export is a single file and 80 dims. Mixing them is the
+        // classic "got invalid dimensions for input" failure.
+        if (File.Exists(Path.Combine(_modelDirectory, "encoder.int8.onnx")))
+        {
+            config.FeatConfig.FeatureDim = 128;
+            config.ModelConfig.Transducer.Encoder = Path.Combine(_modelDirectory, "encoder.int8.onnx");
+            config.ModelConfig.Transducer.Decoder = Path.Combine(_modelDirectory, "decoder.int8.onnx");
+            config.ModelConfig.Transducer.Joiner = Path.Combine(_modelDirectory, "joiner.int8.onnx");
+            config.ModelConfig.Tokens = Path.Combine(_modelDirectory, "tokens.txt");
+            config.ModelConfig.ModelType = "nemo_transducer";
+        }
+        else
+        {
+            config.FeatConfig.FeatureDim = 80;
+            config.ModelConfig.NeMoCtc.Model = Path.Combine(_modelDirectory, "model.int8.onnx");
+            config.ModelConfig.Tokens = Path.Combine(_modelDirectory, "tokens.txt");
+            config.ModelConfig.ModelType = "nemo_ctc";
+        }
 
         _recognizer = new OfflineRecognizer(config);
         return ValueTask.FromResult(true);
@@ -150,7 +182,7 @@ public sealed class ParakeetTranscriber : ITranscriber
     public ValueTask UnloadAsync()
     {
         // Same as DisposeAsync minus the interface's own expectations: dispose the native
-        // recognizer (which frees the ~660 MB of model memory) and allow a reload later.
+        // recognizer (which frees the model memory) and allow a reload later.
         _recognizer?.Dispose();
         _recognizer = null;
         return ValueTask.CompletedTask;

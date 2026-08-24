@@ -164,6 +164,32 @@ public sealed class BundledCleaner : ISmartCleaner, IDisposable
         "<|im_start|>assistant\n";
 
     /// <inheritdoc />
+    public bool CanUnload => true;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Same as <see cref="Dispose"/> minus the semaphore: the instance stays usable and
+    /// reloads on the next call. The gate is taken so an in-flight generation finishes
+    /// before the model is torn down under it.
+    /// </remarks>
+    public void Unload()
+    {
+        _gate.Wait();
+        try
+        {
+            _executor = null;
+            _context?.Dispose();
+            _context = null;
+            _model?.Dispose();
+            _model = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         _executor = null;

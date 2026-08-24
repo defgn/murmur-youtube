@@ -88,7 +88,11 @@ public sealed class Composition : IAsyncDisposable
 
         if (available)
         {
-            var modelDirectory = settings.Data.ModelDirectory ?? ParakeetTranscriber.Locate();
+            var modelDirectory = settings.Data.ModelDirectory
+                ?? (string.Equals(settings.Data.SpeechModel, "Accurate", StringComparison.OrdinalIgnoreCase)
+                    ? ParakeetTranscriber.Locate(ParakeetTranscriber.AccurateFolder)
+                    : ParakeetTranscriber.Locate(ParakeetTranscriber.CompactFolder))
+                ?? ParakeetTranscriber.Locate();
 
             ITranscriber transcriber = modelDirectory is not null
                 ? new ParakeetTranscriber(modelDirectory)

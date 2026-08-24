@@ -324,6 +324,28 @@ public sealed class DictationEngineTests
     }
 
     [Fact]
+    public async Task Idle_unload_also_frees_the_bundled_cleaner()
+    {
+        var hotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("hello");
+        var cleaner = new FakeSmartCleaner { CanUnload = true };
+        var injector = new RecordingTextInjector();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), hotkey, transcriber, injector,
+            () => [], new FakeClock(), smartCleaner: cleaner,
+            idleUnloadTimeout: TimeSpan.FromMilliseconds(150));
+
+        await DictateAsync(hotkey, engine);
+        cleaner.Unloaded.ShouldBeFalse("still in use right after dictation");
+
+        // The idle timeout frees the LLM too: a lean app should not hold ~1 GB of model
+        // memory when nobody is dictating.
+        for (var i = 0; i < 500 && !cleaner.Unloaded; i++) await Task.Delay(10);
+        cleaner.Unloaded.ShouldBeTrue("the idle timeout must unload the smart cleaner");
+    }
+
+    [Fact]
     public async Task Idle_model_unload_frees_the_recognizer_and_the_next_dictation_reloads_it()
     {
         var hotkey = new FakeHotkeySource();

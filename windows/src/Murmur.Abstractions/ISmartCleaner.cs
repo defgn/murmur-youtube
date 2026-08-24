@@ -34,4 +34,17 @@ public interface ISmartCleaner : IDisposable
     /// the pass could not run or the model declined to change anything.
     /// </summary>
     Task<string?> TransformAsync(string instruction, string text, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// True when the cleaner holds resident model memory in <i>this process</i> that
+    /// idle-unloading frees (the bundled GGUF). Ollama holds its model in its own process,
+    /// so it returns false and <see cref="Unload"/> is a no-op.
+    /// </summary>
+    bool CanUnload { get; }
+
+    /// <summary>
+    /// Frees the resident model, if any; the next call reloads it. Called when Woffle has
+    /// been idle — a lean app should not hold the LLM's ~1 GB when nobody is dictating.
+    /// </summary>
+    void Unload();
 }
