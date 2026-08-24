@@ -173,13 +173,6 @@ public sealed class SettingsWindow : Window
                     Toggle("Simplify corrections (three minus one potatoes → 2 potatoes)",
                         _settings.Data.SimplifyArithmetic,
                         v => Save(_settings.Data with { SimplifyArithmetic = v })),
-                    Toggle("Smart cleanup (local AI)", _settings.Data.SmartClean,
-                        v =>
-                        {
-                            Save(_settings.Data with { SmartClean = v });
-                            _smartCleanSection.IsEnabled = v;
-                        }),
-                    BuildSmartCleanBackend(),
                     Toggle("Keep a transcript history", _settings.Data.KeepHistory,
                         v => Save(_settings.Data with { KeepHistory = v })),
                     Toggle("Keep running in the notification area when I close the window",
@@ -188,6 +181,21 @@ public sealed class SettingsWindow : Window
                     Toggle("Unload the speech model after 5 minutes idle",
                         _settings.Data.UnloadWhenIdle,
                         v => Save(_settings.Data with { UnloadWhenIdle = v })),
+                },
+            }),
+
+            Section("AI", new StackPanel
+            {
+                Spacing = Tokens.Space.Snug,
+                Children =
+                {
+                    Toggle("Smart cleanup (local AI)", _settings.Data.SmartClean,
+                        v =>
+                        {
+                            Save(_settings.Data with { SmartClean = v });
+                            _smartCleanSection.IsEnabled = v;
+                        }),
+                    BuildSmartCleanBackend(),
                 },
             }),
 
@@ -529,9 +537,12 @@ public sealed class SettingsWindow : Window
         var isOllama = string.Equals(
             _settings.Data.SmartCleanBackend, "Ollama", StringComparison.OrdinalIgnoreCase);
         _smartNote.Text = isOllama
-            ? "Uses the model running in Ollama on this PC (leave the tag blank to auto-pick "
-              + "the first installed). If Ollama is not running, the built-in cleaner is used."
-            : "Uses the small model shipped with Woffle — works out of the box, nothing to "
-              + "install. Adds roughly a second per dictation and ~1 GB of RAM once loaded.";
-    }
+            ? "This switch controls ALL AI in Woffle: turning it off unloads the model "
+              + "immediately and disables Command Mode. Uses the model running in Ollama on "
+              + "this PC (blank tag auto-picks the first installed); if Ollama is not running, "
+              + "the built-in cleaner is used."
+            : "This switch controls ALL AI in Woffle: turning it off unloads the model "
+              + "immediately (~1 GB freed) and disables Command Mode. Uses the small model "
+              + "shipped with Woffle — nothing to install, adds roughly a second per dictation.";
+}
 }

@@ -52,7 +52,7 @@ public sealed class DictationEngine : IAsyncDisposable
     private readonly Func<IReadOnlyList<DictionaryEntry>> _dictionary;
     private readonly bool _removeFillers;
     private readonly bool _simplifyArithmetic;
-    private readonly ISmartCleaner? _smartCleaner;
+    private ISmartCleaner? _smartCleaner;
     private bool _smartCleanerWarned;
     private readonly TimeSpan _partialInterval;
     private readonly TimeSpan _idleUnloadTimeout;
@@ -195,6 +195,18 @@ public sealed class DictationEngine : IAsyncDisposable
     {
         _capture.DeviceId = deviceId;
         _capture.Gain = gain;
+    }
+
+    /// <summary>
+    /// Swaps the smart-clean backend live (Settings → AI). The previous cleaner is disposed
+    /// so its model memory is released immediately — toggling AI off must actually free the
+    /// ~1 GB, not just stop using it.
+    /// </summary>
+    public void ConfigureSmartClean(ISmartCleaner? cleaner)
+    {
+        var previous = _smartCleaner;
+        _smartCleaner = cleaner;
+        previous?.Dispose();
     }
 
     /// <summary>
@@ -596,6 +608,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
         await _capture.DisposeAsync().ConfigureAwait(false);
         await _transcriber.DisposeAsync().ConfigureAwait(false);
+        _smartCleaner?.Dispose();
         CancelIdleUnload();
         _transcribeGate.Dispose();
         _gate.Dispose();

@@ -88,6 +88,29 @@ public sealed class CommandModeCoordinatorTests
         injector.Injected.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task AI_switched_off_notices_and_types_nothing()
+    {
+        var commandHotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("make this more formal");
+        var injector = new RecordingTextInjector();
+        var selection = new FakeSelectionReader { Result = "selected text" };
+        var notices = new List<string>();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), new FakeHotkeySource(), transcriber, injector,
+            () => [], new FakeClock(), commandHotkey: commandHotkey);
+
+        using var coordinator = new CommandModeCoordinator(
+            engine, cleaner: null, injector, selection, notices.Add);
+
+        await DictateAsync(commandHotkey, engine);
+        await WaitForAsync(() => notices.Count > 0);
+
+        notices.ShouldContain(m => m.Contains("AI cleanup is switched off", StringComparison.OrdinalIgnoreCase));
+        injector.Injected.ShouldBeEmpty();
+    }
+
     private static async Task DictateAsync(FakeHotkeySource hotkey, DictationEngine engine)
     {
         hotkey.Press();

@@ -12,10 +12,12 @@ namespace Murmur.App;
 /// selection, hand it to the cleanup model as a transform instruction, paste the result
 /// back over the selection. Every failure mode ends in a visible notice; nothing is ever
 /// typed when a step could not be completed.
+/// The cleaner is the <b>same instance the engine uses</b> and the engine owns its
+/// disposal; <see cref="SetCleaner"/> only re-points this at the current one.
 /// </remarks>
 public sealed class CommandModeCoordinator : IDisposable
 {
-    private readonly ISmartCleaner _cleaner;
+    private ISmartCleaner? _cleaner;
     private readonly ITextInjector? _injector;
     private readonly ISelectionReader? _selectionReader;
     private readonly Action<string> _notice;
@@ -23,7 +25,7 @@ public sealed class CommandModeCoordinator : IDisposable
     /// <summary>Wires Command Mode to <paramref name="engine"/>'s command hotkey.</summary>
     public CommandModeCoordinator(
         DictationEngine engine,
-        ISmartCleaner cleaner,
+        ISmartCleaner? cleaner,
         ITextInjector? injector,
         ISelectionReader? selectionReader,
         Action<string> notice)
@@ -35,11 +37,24 @@ public sealed class CommandModeCoordinator : IDisposable
         engine.CommandRequested += OnCommandRequested;
     }
 
+    /// <summary>
+    /// Points Command Mode at the current smart-clean backend. The engine owns the
+    /// instance and its disposal; this just follows the Settings → AI switch.
+    /// </summary>
+    public void SetCleaner(ISmartCleaner? cleaner) => _cleaner = cleaner;
+
     private async void OnCommandRequested(object? sender, string instruction)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(instruction)) return;
+
+            if (_cleaner is null)
+            {
+                _notice("AI cleanup is switched off — Command Mode needs it. Turn it on in "
+                       + "Settings → AI.");
+                return;
+            }
 
             if (_selectionReader is null)
             {
@@ -80,5 +95,8 @@ public sealed class CommandModeCoordinator : IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _cleaner.Dispose();
+    public void Dispose()
+    {
+        // The cleaner belongs to the engine; nothing to release here.
+    }
 }

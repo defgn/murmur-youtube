@@ -288,6 +288,42 @@ public sealed class DictationEngineTests
     }
 
     [Fact]
+    public async Task Start_arms_both_hotkeys()
+    {
+        var dictationHotkey = new FakeHotkeySource();
+        var commandHotkey = new FakeHotkeySource();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Silence(0.1), dictationHotkey, new FakeTranscriber("x"),
+            new RecordingTextInjector(), () => [], new FakeClock(), commandHotkey: commandHotkey);
+
+        engine.Start();
+
+        // Regression: two hooks must not fight. A single shared callback slot would leave
+        // the second hook's start silently rerouting the first hook's events — dictation
+        // then dies while the pill still works.
+        dictationHotkey.IsRunning.ShouldBeTrue();
+        commandHotkey.IsRunning.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ConfigureSmartClean_swaps_and_disposes_the_previous_cleaner()
+    {
+        var hotkey = new FakeHotkeySource();
+        var first = new FakeSmartCleaner();
+        var second = new FakeSmartCleaner();
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Silence(0.1), hotkey, new FakeTranscriber("x"),
+            new RecordingTextInjector(), () => [], new FakeClock(), smartCleaner: first);
+
+        engine.ConfigureSmartClean(second);
+
+        first.Disposed.ShouldBeTrue("the old backend must release its model immediately");
+        second.Disposed.ShouldBeFalse("the live backend stays loaded");
+    }
+
+    [Fact]
     public async Task Idle_model_unload_frees_the_recognizer_and_the_next_dictation_reloads_it()
     {
         var hotkey = new FakeHotkeySource();

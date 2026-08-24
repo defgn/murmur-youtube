@@ -220,7 +220,10 @@ public sealed class FakeSmartCleaner : ISmartCleaner
     }
 
     /// <inheritdoc />
-    public void Dispose() { }
+    public void Dispose() => Disposed = true;
+
+    /// <summary>Whether <see cref="Dispose"/> has been called — the model-freed signal.</summary>
+    public bool Disposed { get; private set; }
 }
 
 /// <summary>

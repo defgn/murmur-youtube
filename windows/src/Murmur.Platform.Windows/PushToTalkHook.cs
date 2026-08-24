@@ -140,16 +140,23 @@ public sealed class PushToTalkHook : IHotkeySource
     private static extern uint GetCurrentThreadId();
 
     /// <summary>
-    /// Roots the delegate for the lifetime of the hook.
+    /// Roots the callback delegate for the lifetime of this hook.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Microsoft: "you must ensure the callback is not moved around by the garbage collector,
-    /// otherwise your app will crash with an ExecutionEngineException." A local variable here
+    /// otherwise your app will crash with an ExecutionEngineException." A local variable
     /// produces a crash minutes or hours later, at random, with no useful stack.
+    /// </para>
+    /// <para>
+    /// This is an <b>instance</b> field, not a static one, and deliberately so: Command Mode
+    /// installs a second hook, and a single static slot means the second hook's start
+    /// silently reroutes the first hook's events to itself — both hooks then go deaf and
+    /// dictation dies. The owning engine roots each instance for the app lifetime, and each
+    /// instance roots its own callback.
+    /// </para>
     /// </remarks>
-    private static HookProc? s_callback;
-
-    private static PushToTalkHook? s_instance;
+    private HookProc? _callback;
 
     private IntPtr _hook;
     private Thread? _thread;
@@ -169,7 +176,6 @@ public sealed class PushToTalkHook : IHotkeySource
     public bool Start()
     {
         StopListening();
-        s_instance = this;
 
         using var ready = new ManualResetEventSlim(false);
         var installed = false;
@@ -177,11 +183,11 @@ public sealed class PushToTalkHook : IHotkeySource
         _thread = new Thread(() =>
         {
             _threadId = GetCurrentThreadId();
-            s_callback = StaticCallback;
+            _callback = InstanceCallback;
 
             // Pass the running module's handle. IntPtr.Zero is documented as possibly
             // failing when threadId is 0, which is exactly the global case.
-            _hook = SetWindowsHookEx(WH_KEYBOARD_LL, s_callback, GetModuleHandle(null), 0);
+            _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _callback, GetModuleHandle(null), 0);
             installed = _hook != IntPtr.Zero;
 
             // ReSharper disable once AccessToDisposedClosure
@@ -227,23 +233,16 @@ public sealed class PushToTalkHook : IHotkeySource
         _thread = null;
         _threadId = 0;
         _isDown = false;
-
-        if (ReferenceEquals(s_instance, this))
-        {
-            s_instance = null;
-            s_callback = null;
-        }
     }
 
-    /// <summary>Static, per Microsoft's guidance. Keep the body short.</summary>
-    private static IntPtr StaticCallback(int code, IntPtr wParam, IntPtr lParam)
+    /// <summary>Instance callback, per Microsoft's guidance. Keep the body short.</summary>
+    private IntPtr InstanceCallback(int code, IntPtr wParam, IntPtr lParam)
     {
-        var self = s_instance;
-        if (code != HC_ACTION || self is null) return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+        if (code != HC_ACTION) return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
 
         try
         {
-            self.Handle(wParam, lParam);
+            Handle(wParam, lParam);
         }
         catch (Exception)
         {
