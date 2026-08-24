@@ -8,21 +8,27 @@ namespace Murmur.App;
 /// ("make this more formal"), and Woffle rewrites the selection in place.
 /// </summary>
 /// <remarks>
-/// The engine does the listening and transcribing — this wires the rest: read the
-/// selection, hand it to the cleanup model as a transform instruction, paste the result
-/// back over the selection. Every failure mode ends in a visible notice; nothing is ever
-/// typed when a step could not be completed.
-/// The cleaner is the <b>same instance the engine uses</b> and the engine owns its
-/// disposal; <see cref="SetCleaner"/> only re-points this at the current one.
+/// <para>
+/// The coordinator owns its own cleaner, deliberately independent of the Settings → AI
+/// switch: Command Mode <i>is</i> an LLM feature, and the switch controls the transcript
+/// cleanup pass, not the whole idea. Turning the switch off frees the cleanup model but a
+/// command still works — the model loads on demand, and idle-unloads with the speech model.
+/// </para>
 /// </remarks>
 public sealed class CommandModeCoordinator : IDisposable
 {
-    private ISmartCleaner? _cleaner;
+    private readonly DictationEngine _engine;
     private readonly ITextInjector? _injector;
     private readonly ISelectionReader? _selectionReader;
     private readonly Action<string> _notice;
+    private ISmartCleaner? _cleaner;
 
-    /// <summary>Wires Command Mode to <paramref name="engine"/>'s command hotkey.</summary>
+    /// <summary>Wires Command Mode to the engine's command hotkey.</summary>
+    /// <param name="engine">The running engine; its <see cref="DictationEngine.CommandRequested"/> drives this.</param>
+    /// <param name="cleaner">The model backend (bundled or Ollama), owned and disposed here.</param>
+    /// <param name="injector">Types the rewritten text; null off Windows.</param>
+    /// <param name="selectionReader">Reads the selected text; null off Windows.</param>
+    /// <param name="notice">A UI-thread-safe way to surface a transient message.</param>
     public CommandModeCoordinator(
         DictationEngine engine,
         ISmartCleaner? cleaner,
@@ -30,18 +36,17 @@ public sealed class CommandModeCoordinator : IDisposable
         ISelectionReader? selectionReader,
         Action<string> notice)
     {
+        _engine = engine;
         _cleaner = cleaner;
         _injector = injector;
         _selectionReader = selectionReader;
         _notice = notice;
-        engine.CommandRequested += OnCommandRequested;
+
+        _engine.CommandRequested += OnCommandRequested;
+        _engine.IdleUnloaded += OnIdleUnloaded;
     }
 
-    /// <summary>
-    /// Points Command Mode at the current smart-clean backend. The engine owns the
-    /// instance and its disposal; this just follows the Settings → AI switch.
-    /// </summary>
-    public void SetCleaner(ISmartCleaner? cleaner) => _cleaner = cleaner;
+    private void OnIdleUnloaded(object? sender, EventArgs e) => _cleaner?.Unload();
 
     private async void OnCommandRequested(object? sender, string instruction)
     {
@@ -49,16 +54,9 @@ public sealed class CommandModeCoordinator : IDisposable
         {
             if (string.IsNullOrWhiteSpace(instruction)) return;
 
-            if (_cleaner is null)
-            {
-                _notice("AI cleanup is switched off — Command Mode needs it. Turn it on in "
-                       + "Settings → AI.");
-                return;
-            }
-
             if (_selectionReader is null)
             {
-                _notice("Command Mode is Windows-only (it needs to read the selection).");
+                _notice("Command Mode needs Windows (reading the selection).");
                 return;
             }
 
@@ -69,24 +67,27 @@ public sealed class CommandModeCoordinator : IDisposable
                 return;
             }
 
+            if (_cleaner is null)
+            {
+                _notice("No cleanup model is available — check the AI settings.");
+                return;
+            }
+
             var rewritten = await _cleaner.TransformAsync(instruction, selected, CancellationToken.None);
             if (string.IsNullOrWhiteSpace(rewritten))
             {
-                _notice("Could not rewrite the selection — is the cleanup model available?");
+                _notice("Could not rewrite the selection (is the model available?).");
                 return;
             }
 
             if (_injector is null)
             {
-                _notice("Command Mode is Windows-only (it needs to paste the result).");
+                _notice("Command Mode needs Windows (pasting the result).");
                 return;
             }
 
-            var pasted = await _injector.InjectAsync(rewritten, CancellationToken.None);
-            _notice(pasted
-                ? $"Command done: {instruction}"
-                : "Rewrote the selection but could not paste it — the focused window may be "
-                  + "elevated. The text is on the clipboard.");
+            var ok = await _injector.InjectAsync(rewritten, CancellationToken.None);
+            _notice(ok ? $"Command done: {instruction}" : "Could not paste the rewritten text.");
         }
         catch (Exception e)
         {
@@ -97,6 +98,9 @@ public sealed class CommandModeCoordinator : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        // The cleaner belongs to the engine; nothing to release here.
+        _engine.CommandRequested -= OnCommandRequested;
+        _engine.IdleUnloaded -= OnIdleUnloaded;
+        _cleaner?.Dispose();
+        _cleaner = null;
     }
 }

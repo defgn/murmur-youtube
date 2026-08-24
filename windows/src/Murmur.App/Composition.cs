@@ -109,8 +109,9 @@ public sealed class Composition : IAsyncDisposable
                 ? new ParakeetTranscriber(modelDirectory)
                 : new UnavailableTranscriber();
 
-            // Command Mode shares the engine's cleaner, so the Settings → AI switch is THE
-            // switch: off unloads the model everywhere; on builds it back.
+            // Command Mode owns a cleaner of its own — the AI switch governs the cleanup
+            // pass, not the whole idea. Its model loads on demand and idle-unloads with
+            // the speech model.
             var commandHotkey = PlatformFactory.CreateHotkeySource(settings.Data.CommandKey);
 
             engine = new DictationEngine(
@@ -127,15 +128,14 @@ public sealed class Composition : IAsyncDisposable
 
             commandMode = new CommandModeCoordinator(
                 engine,
-                settings.Data.SmartClean ? BuildSmartCleaner(settings) : null,
+                BuildSmartCleaner(settings),
                 injector, selectionReader,
                 engine.Notify);
             // Persisted mic choice + boost apply live, without a restart.
             engine.ConfigureInput(settings.Data.InputDeviceId, settings.Data.InputGain);
 
-            // The AI switch applies live: toggling Smart cleanup (or changing the backend)
-            // unloads or rebuilds the model without a restart. The engine owns the cleaner;
-            // the coordinator follows the same instance.
+            // The AI switch applies live to the cleanup pass only: toggling Smart cleanup
+            // (or changing the backend) unloads or rebuilds the model without a restart.
             (bool On, string Backend, string? Model) lastAiConfig = (
                 settings.Data.SmartClean,
                 settings.Data.SmartCleanBackend ?? string.Empty,
@@ -146,12 +146,10 @@ public sealed class Composition : IAsyncDisposable
                     settings.Data.SmartClean,
                     settings.Data.SmartCleanBackend ?? string.Empty,
                     settings.Data.SmartCleanModel);
-                if (config == lastAiConfig) return;
+                if (config == lastAiConfig || engine is null) return;
                 lastAiConfig = config;
 
-                var cleaner = settings.Data.SmartClean ? BuildSmartCleaner(settings) : null;
-                engine.ConfigureSmartClean(cleaner);
-                commandMode.SetCleaner(cleaner);
+                engine.ConfigureSmartClean(settings.Data.SmartClean ? BuildSmartCleaner(settings) : null);
             };
 
             engine.Completed += (_, result) =>

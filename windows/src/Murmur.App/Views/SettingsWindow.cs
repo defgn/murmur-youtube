@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -190,11 +191,7 @@ public sealed class SettingsWindow : Window
                 Children =
                 {
                     Toggle("Smart cleanup (local AI)", _settings.Data.SmartClean,
-                        v =>
-                        {
-                            Save(_settings.Data with { SmartClean = v });
-                            _smartCleanSection.IsEnabled = v;
-                        }),
+                        v => Save(_settings.Data with { SmartClean = v })),
                     BuildSmartCleanBackend(),
                 },
             }),
@@ -298,12 +295,14 @@ public sealed class SettingsWindow : Window
     {
         foreach (var child in _micRow.Children)
         {
-            if (child is Button key) SetSelectable(key, false);
+            if (child is SelectablePill key) SetSelectable(key, false);
         }
 
         foreach (var child in _micRow.Children)
         {
-            if (child is Button key && key.Content is string content && content.StartsWith(deviceName, StringComparison.Ordinal))
+            if (child is SelectablePill key
+                && key.Child is TextBlock label
+                && label.Text?.StartsWith(deviceName, StringComparison.Ordinal) == true)
             {
                 SetSelectable(key, true);
                 break;
@@ -417,7 +416,7 @@ public sealed class SettingsWindow : Window
     {
         for (var i = 0; i < Keys.Length; i++)
         {
-            SetSelectable((Button)_keyRow.Children[i], Keys[i].Key == key);
+            SetSelectable((SelectablePill)_keyRow.Children[i], Keys[i].Key == key);
         }
 
         _keyWarning.Text = warning ?? string.Empty;
@@ -434,7 +433,7 @@ public sealed class SettingsWindow : Window
 
         for (var i = 0; i < Keys.Length; i++)
         {
-            SetSelectable((Button)_commandKeyRow.Children[i], Keys[i].Key == key);
+            SetSelectable((SelectablePill)_commandKeyRow.Children[i], Keys[i].Key == key);
         }
 
         if (_settings.Data.CommandKey != key) Save(_settings.Data with { CommandKey = key });
@@ -502,35 +501,81 @@ public sealed class SettingsWindow : Window
         return row;
     }
 
-    /// <summary>A selectable option — the segmented buttons for keys and microphones.</summary>
-    private static Button Selectable(string label, bool engaged = false) => new()
+    /// <summary>
+    /// A selectable option — the segmented pills for keys, microphones, models and
+    /// backends.
+    /// </summary>
+    /// <remarks>
+    /// A Border, not a Button, on purpose: the Fluent theme paints its own hover/pressed
+    /// faces on Buttons, which fought the engaged styling and read as "all grey". A Border
+    /// with explicit pointer handlers is fully ours — hover is a soft wash, engaged is a
+    /// solid accent fill with white text, and nothing can override it.
+    /// </remarks>
+    private sealed class SelectablePill : Border
     {
-        Content = label,
-        FontFamily = Tokens.Fonts.Grotesque,
-        FontSize = Tokens.Fonts.Label,
-        FontWeight = FontWeight.Medium,
-        Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug - Tokens.Space.Hair),
-        CornerRadius = new CornerRadius(Tokens.Radius.Control),
-        HorizontalAlignment = HorizontalAlignment.Left,
-    };
+        private readonly TextBlock _label;
 
-    private static void SetSelectable(Button button, bool engaged)
-    {
-        // Engaged = filled accent + white text: the selected option must be obvious at a
-        // glance, not a hairline border that only shows when you look for it.
-        button.Foreground = engaged ? Brushes.White : new SolidColorBrush(Tokens.Colors.InkSecondary);
-        button.Background = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : Brushes.Transparent;
-        button.BorderBrush = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : new SolidColorBrush(Tokens.Colors.Seam);
-        button.BorderThickness = new Thickness(1);
+        public SelectablePill(string label)
+        {
+            _label = new TextBlock
+            {
+                Text = label,
+                FontFamily = Tokens.Fonts.Grotesque,
+                FontSize = Tokens.Fonts.Label,
+                FontWeight = FontWeight.Medium,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Child = _label;
+            Padding = new Thickness(Tokens.Space.Base, Tokens.Space.Snug - Tokens.Space.Hair);
+            CornerRadius = new CornerRadius(Tokens.Radius.Control);
+            HorizontalAlignment = HorizontalAlignment.Left;
+            Cursor = new Cursor(StandardCursorType.Hand);
+
+            PointerPressed += (_, e) =>
+            {
+                e.Handled = true;
+                Click?.Invoke(this, EventArgs.Empty);
+            };
+            PointerEntered += (_, _) => { if (!Engaged) Background = Tokens.Brushes.GlassSoft; };
+            PointerExited += (_, _) => { if (!Engaged) Background = Brushes.Transparent; };
+        }
+
+        /// <summary>Raised when the pill is pressed.</summary>
+        public event EventHandler? Click;
+
+        /// <summary>Whether this is the selected option in its group.</summary>
+        public bool Engaged { get; private set; }
+
+        /// <summary>Switches between the selected (accent fill) and idle faces.</summary>
+        public void SetEngaged(bool engaged)
+        {
+            Engaged = engaged;
+            _label.Foreground = engaged ? Brushes.White : new SolidColorBrush(Tokens.Colors.InkSecondary);
+            Background = engaged ? new SolidColorBrush(Tokens.Colors.Accent) : Brushes.Transparent;
+            BorderBrush = engaged
+                ? new SolidColorBrush(Tokens.Colors.Accent)
+                : new SolidColorBrush(Tokens.Colors.Seam);
+            BorderThickness = new Thickness(1);
+        }
     }
 
-    private Button _bundledBackendButton = null!;
-    private Button _ollamaBackendButton = null!;
+    /// <summary>A selectable option — the segmented pills for keys, microphones and models.</summary>
+    private static SelectablePill Selectable(string label, bool engaged = false)
+    {
+        var pill = new SelectablePill(label);
+        pill.SetEngaged(engaged);
+        return pill;
+    }
+
+    private static void SetSelectable(SelectablePill pill, bool engaged) => pill.SetEngaged(engaged);
+
+    private SelectablePill _bundledBackendButton = null!;
+    private SelectablePill _ollamaBackendButton = null!;
     private TextBox _ollamaModelBox = null!;
     private TextBlock _smartNote = null!;
     private StackPanel _smartCleanSection = null!;
-    private Button _compactModelButton = null!;
-    private Button _accurateModelButton = null!;
+    private SelectablePill _compactModelButton = null!;
+    private SelectablePill _accurateModelButton = null!;
     private TextBlock _speechModelNote = null!;
 
     /// <summary>
@@ -600,12 +645,10 @@ public sealed class SettingsWindow : Window
         var isOllama = string.Equals(
             _settings.Data.SmartCleanBackend, "Ollama", StringComparison.OrdinalIgnoreCase);
         _smartNote.Text = isOllama
-            ? "This switch controls ALL AI in Woffle: turning it off unloads the model "
-              + "immediately and disables Command Mode. Uses the model running in Ollama on "
-              + "this PC (blank tag auto-picks the first installed); if Ollama is not running, "
-              + "the built-in cleaner is used."
-            : "This switch controls ALL AI in Woffle: turning it off unloads the model "
-              + "immediately (~1 GB freed) and disables Command Mode. Uses the small model "
-              + "shipped with Woffle — nothing to install, adds roughly a second per dictation.";
+            ? "Uses the model running in Ollama on this PC (leave the tag blank to auto-pick "
+              + "the first installed). If Ollama is not running, the built-in cleaner is used."
+            : "Uses the small model shipped with Woffle — nothing to install, adds roughly a "
+              + "second per dictation. Turning this off unloads the model immediately (~1 GB "
+              + "freed); Command Mode still works, loading the model only when you use it.";
 }
 }

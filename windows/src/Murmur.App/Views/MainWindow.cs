@@ -47,6 +47,7 @@ public sealed class MainWindow : Window
     private bool _recordingVisual;
     private bool _wasRecordingVisual;
     private bool _closeApproved;
+    private bool _askedAboutTray;
 
     /// <summary>
     /// Lets a real quit (tray menu, shutdown) pass through the close-to-tray interception.
@@ -571,6 +572,20 @@ public sealed class MainWindow : Window
 
         if (keep.Value)
         {
+            // Tray mode surprises everyone who expects the X to quit. The first hide after
+            // a launch offers the fix outright — one click ends the confusion permanently.
+            if (!_askedAboutTray)
+            {
+                _askedAboutTray = true;
+                if (await AskMakeXQuitAsync())
+                {
+                    _composition.Settings.Update(_composition.Settings.Data with { CloseToTray = false });
+                    _closeApproved = true;
+                    Close();
+                    return;
+                }
+            }
+
             Hide();
 
             // The single most confusing behaviour in the app: the X did nothing visible.
@@ -583,6 +598,87 @@ public sealed class MainWindow : Window
             _closeApproved = true;
             Close();
         }
+    }
+
+    /// <summary>
+    /// One-time offer: convert the X button from hide-to-tray to quit. Asked only when
+    /// tray mode is on, once per launch, and only after the user pressed X — so it is
+    /// always answering a question they just asked.
+    /// </summary>
+    private async Task<bool> AskMakeXQuitAsync()
+    {
+        var dialog = new Window
+        {
+            Title = "Woffle",
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            Background = Tokens.Brushes.ChassisGradient,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+
+        var message = new TextBlock
+        {
+            Text = "Woffle is hiding to the notification area when you close it, instead of "
+                 + "quitting.\n\nMake the X button quit from now on?",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Body,
+            Foreground = Tokens.Brushes.Ink,
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var quitOnX = new Button
+        {
+            Content = "Yes — quit on X",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Body,
+            FontWeight = FontWeight.SemiBold,
+            Background = Tokens.Brushes.DarkPill,
+            Foreground = Tokens.Brushes.PillInk,
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Base),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+
+        var keepHiding = new Button
+        {
+            Content = "No, keep hiding",
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Body,
+            Background = Tokens.Brushes.Glass,
+            Foreground = Tokens.Brushes.Ink,
+            CornerRadius = new CornerRadius(Tokens.Radius.Pill),
+            Padding = new Thickness(Tokens.Space.Roomy, Tokens.Space.Base),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+
+        var result = false;
+        quitOnX.Click += (_, _) => { result = true; dialog.Close(); };
+        keepHiding.Click += (_, _) => dialog.Close();
+
+        dialog.Content = new Border
+        {
+            Background = Tokens.Brushes.ChassisGradient,
+            Child = new StackPanel
+            {
+                Spacing = Tokens.Space.Roomy,
+                Margin = new Thickness(Tokens.Space.Wide),
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    message,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = Tokens.Space.Base,
+                        Children = { quitOnX, keepHiding },
+                    },
+                },
+            },
+        };
+
+        await dialog.ShowDialog(this);
+        return result;
     }
 
     /// <summary>A transient message under the pill; vanishes after a few seconds.</summary>

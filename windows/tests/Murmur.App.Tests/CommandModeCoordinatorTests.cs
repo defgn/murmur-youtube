@@ -89,7 +89,7 @@ public sealed class CommandModeCoordinatorTests
     }
 
     [Fact]
-    public async Task AI_switched_off_notices_and_types_nothing()
+    public async Task Missing_model_notices_and_types_nothing()
     {
         var commandHotkey = new FakeHotkeySource();
         var transcriber = new FakeTranscriber("make this more formal");
@@ -107,8 +107,30 @@ public sealed class CommandModeCoordinatorTests
         await DictateAsync(commandHotkey, engine);
         await WaitForAsync(() => notices.Count > 0);
 
-        notices.ShouldContain(m => m.Contains("AI cleanup is switched off", StringComparison.OrdinalIgnoreCase));
+        notices.ShouldContain(m => m.Contains("No cleanup model", StringComparison.OrdinalIgnoreCase));
         injector.Injected.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Engine_idle_unload_frees_the_command_cleaner_too()
+    {
+        var commandHotkey = new FakeHotkeySource();
+        var transcriber = new FakeTranscriber("make this more formal");
+        var injector = new RecordingTextInjector();
+        var cleaner = new FakeSmartCleaner { CanUnload = true };
+
+        await using var engine = new DictationEngine(
+            FakeAudioCapture.Tone(0.4), new FakeHotkeySource(), transcriber, injector,
+            () => [], new FakeClock(), commandHotkey: commandHotkey,
+            idleUnloadTimeout: TimeSpan.FromMilliseconds(150));
+
+        using var coordinator = new CommandModeCoordinator(
+            engine, cleaner, injector, new FakeSelectionReader(), _ => { });
+
+        await DictateAsync(commandHotkey, engine);
+        for (var i = 0; i < 500 && !cleaner.Unloaded; i++) await Task.Delay(10);
+
+        cleaner.Unloaded.ShouldBeTrue("the idle timeout must unload the command model too");
     }
 
     private static async Task DictateAsync(FakeHotkeySource hotkey, DictationEngine engine)

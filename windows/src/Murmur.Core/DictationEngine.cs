@@ -180,6 +180,11 @@ public sealed class DictationEngine : IAsyncDisposable
     /// </summary>
     public bool CommandModeActive { get; private set; }
 
+    /// <summary>
+    /// Raised when the idle timeout has unloaded the resident models (speech + bundled LLM).
+    /// </summary>
+    public event EventHandler? IdleUnloaded;
+
     /// <summary>Raises <see cref="Notice"/> — used by pieces wired outside the engine.</summary>
     public void Notify(string message) => Notice?.Invoke(this, message);
 
@@ -358,6 +363,7 @@ public sealed class DictationEngine : IAsyncDisposable
 
             await _transcriber.UnloadAsync().ConfigureAwait(false);
             if (_smartCleaner is { CanUnload: true }) _smartCleaner.Unload();
+            IdleUnloaded?.Invoke(this, EventArgs.Empty);
             Notice?.Invoke(this,
                 "Speech model unloaded after being idle — the next dictation reloads it in a couple of seconds.");
         }
