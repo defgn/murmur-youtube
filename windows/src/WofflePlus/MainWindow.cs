@@ -35,6 +35,12 @@ internal sealed class MainWindow : Window
     private readonly TextBlock _statusLine;
     private bool _shortShown;
 
+    // Listening toggle (built in Header; updated through UpdateListeningUi).
+    private Border? _listenButton;
+    private Border? _listenDot;
+    private TextBlock? _listenLabel;
+    private bool _listening = true;
+
     public MainWindow(PlusSettingsStore settings)
     {
         _settings = settings;
@@ -50,7 +56,14 @@ internal sealed class MainWindow : Window
 
         _micPicker = DevicePicker();
         _outputPicker = DevicePicker();
-        _backendChip = ChipText();
+        _backendChip = new TextBlock
+        {
+            FontSize = Plus.Font.Small,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Plus.Brush.Green,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        RefreshBackendChip();
 
         _transcriptList = new StackPanel();
         _transcriptScroll = new ScrollViewer
@@ -158,9 +171,25 @@ internal sealed class MainWindow : Window
         KeyDown += (_, e) =>
         {
             if (e.KeyModifiers is not (KeyModifiers.Control | KeyModifiers.Shift)) return;
-            if (e.Key == Key.A) { _session.Regenerate(); e.Handled = true; }
+            if (e.Key == Key.Space)
+            {
+                _listening = _session.ToggleListening();
+                UpdateListeningUi();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.A) { _session.Regenerate(); e.Handled = true; }
             else if (e.Key == Key.C) { CopyAnswer(); e.Handled = true; }
         };
+
+        _session.ListeningChanged += (_, on) => Dispatcher.UIThread.Post(() =>
+        {
+            _listening = on;
+            UpdateListeningUi();
+        });
+
+        // Sign-in/out and backend changes in Settings repaint the header chip.
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshBackendChip);
+        _session.CodexAuthChanged += (_, _) => Dispatcher.UIThread.Post(RefreshBackendChip);
 
         Closed += (_, _) => _session.Dispose();
     }
@@ -185,24 +214,7 @@ internal sealed class MainWindow : Window
                     Foreground = Plus.Brush.Ink,
                     VerticalAlignment = VerticalAlignment.Center,
                 },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = Plus.Space.Snug,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Children =
-                    {
-                        ListeningDot(),
-                        new TextBlock
-                        {
-                            Text = "Listening",
-                            FontSize = Plus.Font.Small,
-                            FontWeight = FontWeight.SemiBold,
-                            Foreground = Plus.Brush.Green,
-                            VerticalAlignment = VerticalAlignment.Center,
-                        },
-                    },
-                },
+                BuildListeningButton(),
             },
         };
 
@@ -245,14 +257,56 @@ internal sealed class MainWindow : Window
         };
     }
 
-    private static Control ListeningDot() => new Border
+    private Control BuildListeningButton()
     {
-        Width = 8,
-        Height = 8,
-        CornerRadius = new CornerRadius(4),
-        Background = Plus.Brush.Green,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
+        _listenDot = new Border
+        {
+            Width = 8,
+            Height = 8,
+            CornerRadius = new CornerRadius(4),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _listenLabel = new TextBlock
+        {
+            FontSize = Plus.Font.Small,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _listenButton = new Border
+        {
+            Background = Plus.Brush.Green,
+            BorderBrush = Plus.Brush.Green,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(Plus.Radius.Pill),
+            Padding = new Thickness(Plus.Space.Base, Plus.Space.Tight),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = Plus.Space.Snug,
+                Children = { _listenDot, _listenLabel },
+            },
+        };
+        _listenButton.PointerPressed += (_, _) =>
+        {
+            _listening = _session.ToggleListening();
+            UpdateListeningUi();
+        };
+        UpdateListeningUi();
+        return _listenButton;
+    }
+
+    private void UpdateListeningUi()
+    {
+        if (_listenButton is null || _listenDot is null || _listenLabel is null) return;
+
+        var on = _listening;
+        _listenDot.Background = on ? Plus.Brush.Ink : Plus.Brush.InkSecondary;
+        _listenLabel.Text = on ? "Listening" : "Paused";
+        _listenLabel.Foreground = on ? Plus.Brush.Ink : Plus.Brush.InkSecondary;
+        _listenButton.Background = on ? Plus.Brush.Green : Plus.Brush.Keycap;
+        _listenButton.BorderBrush = on ? Plus.Brush.Green : Plus.Brush.Border;
+    }
 
     private static Control PickerLabel(string label, Control picker) => new StackPanel
     {
@@ -275,19 +329,10 @@ internal sealed class MainWindow : Window
         VerticalContentAlignment = VerticalAlignment.Center,
     };
 
-    private TextBlock ChipText()
+    /// <summary>Repaints the backend chip from the current settings + sign-in state.</summary>
+    private void RefreshBackendChip()
     {
-        var chip = new TextBlock
-        {
-            FontSize = Plus.Font.Small,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Plus.Brush.Green,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        RefreshChip();
-        return chip;
-
-        void RefreshChip() => chip.Text = _settings.Data.Backend switch
+        _backendChip.Text = _settings.Data.Backend switch
         {
             "Codex" => CodexLogin.IsSignedIn ? "ChatGPT ✓" : "ChatGPT — sign in",
             "Zai" => "z.ai",
@@ -419,7 +464,7 @@ internal sealed class MainWindow : Window
             Spacing = Plus.Space.Wide,
             Children =
             {
-                Hotkey("Ctrl+Shift+Space", "pause listening"),
+                Hotkey("Ctrl+Shift+Space", "listening on/off"),
                 Hotkey("Ctrl+Shift+A", "regenerate answer"),
                 Hotkey("Ctrl+Shift+C", "copy answer"),
             },

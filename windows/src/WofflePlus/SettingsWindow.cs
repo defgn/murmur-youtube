@@ -83,7 +83,7 @@ internal sealed class SettingsWindow : Window
         var signOut = OutlineButton("Sign out");
         signOut.Click += (_, _) =>
         {
-            CodexLogin.SignOut();
+            _session.SignOutCodex();
             codexStatus.Text = "Signed out";
             codexStatus.Foreground = Plus.Brush.InkSecondary;
         };

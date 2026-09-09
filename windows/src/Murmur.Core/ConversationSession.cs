@@ -26,6 +26,7 @@ public sealed class ConversationSession : IConversationSession
     private readonly SemaphoreSlim _transcribeGate;
 
     private CancellationTokenSource? _run;
+    private Task? _runTask;
 
     /// <summary>Builds a session over <paramref name="capture"/>.</summary>
     /// <param name="capture">The feed: microphone or loopback.</param>
@@ -64,20 +65,44 @@ public sealed class ConversationSession : IConversationSession
     {
         if (_run is not null) return;
         _run = new CancellationTokenSource();
-        _ = RunAsync(_run.Token);
+        _runTask = RunAsync(_run.Token);
     }
 
     /// <summary>Stops the feed so the device can be changed, then restarts.</summary>
     public async Task RestartAsync()
     {
         if (_run is null) { Start(); return; }
-
-        var old = _run;
-        _run = null;
-        await old.CancelAsync().ConfigureAwait(false);
-        old.Dispose();
-
+        await StopCoreAsync().ConfigureAwait(false);
         Start();
+    }
+
+    /// <summary>Pauses the feed without disposing the capture; Start resumes it.</summary>
+    public async Task StopAsync()
+    {
+        if (_run is null) return;
+        await StopCoreAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Cancels the current run and waits for its capture loop to finish unwinding, so a
+    /// restart never overlaps a dying capture (the old loop's teardown used to complete the
+    /// new generation's channel and silently kill the feed).
+    /// </summary>
+    private async Task StopCoreAsync()
+    {
+        var run = _run;
+        var task = _runTask;
+        _run = null;
+        _runTask = null;
+        if (run is null) return;
+
+        await run.CancelAsync().ConfigureAwait(false);
+        run.Dispose();
+        if (task is not null)
+        {
+            try { await task.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private async Task RunAsync(CancellationToken token)
@@ -138,23 +163,27 @@ public sealed class ConversationSession : IConversationSession
     {
         try
         {
-            if (!_transcriber.IsReady)
-            {
-                var loaded = await _transcriber.LoadAsync(token).ConfigureAwait(false);
-                if (!loaded)
-                {
-                    Fault?.Invoke(this, "The speech model is not installed — see Settings → Model.");
-                    return;
-                }
-            }
-
             var bias = _bias();
             var pieces = AudioSegmenter.Split(samples);
             var texts = new List<string>(pieces.Count);
 
+            // Model loading is serialized with recognition: sherpa-onnx recognizers are not
+            // thread-safe, and two feeds racing LoadAsync (mic wins, loopback loses) left the
+            // loser with a recognizer that never produced text — the mic worked, the speaker
+            // feed stayed silent.
             await _transcribeGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
+                if (!_transcriber.IsReady)
+                {
+                    var loaded = await _transcriber.LoadAsync(token).ConfigureAwait(false);
+                    if (!loaded)
+                    {
+                        Fault?.Invoke(this, "The speech model is not installed — see Settings → Model.");
+                        return;
+                    }
+                }
+
                 foreach (var piece in pieces)
                 {
                     var text = await _transcriber
@@ -197,9 +226,7 @@ public sealed class ConversationSession : IConversationSession
     {
         if (_run is not null)
         {
-            await _run.CancelAsync().ConfigureAwait(false);
-            _run.Dispose();
-            _run = null;
+            await StopCoreAsync().ConfigureAwait(false);
         }
 
         await _capture.DisposeAsync().ConfigureAwait(false);
