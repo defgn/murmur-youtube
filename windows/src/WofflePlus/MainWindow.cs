@@ -46,6 +46,9 @@ internal sealed class MainWindow : Window
     private Border? _micMeterFill;
     private Border? _speakerMeterFill;
 
+    // Quick model switcher in the header; rebuilt when the backend changes.
+    private ComboBox _modelPicker = new();
+
     public MainWindow(PlusSettingsStore settings)
     {
         _settings = settings;
@@ -207,8 +210,12 @@ internal sealed class MainWindow : Window
             UpdateListeningUi();
         });
 
-        // Sign-in/out and backend changes in Settings repaint the header chip.
-        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshBackendChip);
+        // Sign-in/out and backend changes in Settings repaint the chip + refill the model picker.
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            RefreshBackendChip();
+            RefreshModelPicker(_modelPicker);
+        });
         _session.CodexAuthChanged += (_, _) => Dispatcher.UIThread.Post(RefreshBackendChip);
 
         Closed += (_, _) => _session.Dispose();
@@ -238,6 +245,7 @@ internal sealed class MainWindow : Window
             },
         };
 
+        _modelPicker = ModelQuickPicker();
         var pickers = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -248,6 +256,7 @@ internal sealed class MainWindow : Window
             {
                 PickerWithMeter("MIC", _micPicker, isMic: true),
                 PickerWithMeter("SPEAKER", _outputPicker, isMic: false),
+                PickerLabel("MODEL", _modelPicker),
             },
         };
 
@@ -378,6 +387,74 @@ internal sealed class MainWindow : Window
         };
     }
 
+    /// <summary>Builds the header MODEL dropdown for the active backend.</summary>
+    private ComboBox ModelQuickPicker()
+    {
+        var box = new ComboBox
+        {
+            MinWidth = 160,
+            MaxWidth = 200,
+            FontSize = Plus.Font.Small,
+            Background = Plus.Brush.Bg,
+            BorderBrush = Plus.Brush.Border,
+            CornerRadius = new CornerRadius(Plus.Radius.Control),
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        RefreshModelPicker(box);
+        box.SelectionChanged += (_, _) =>
+        {
+            if (box.SelectedItem is not string chosen) return;
+            var d = _settings.Data;
+            var updated = d.Backend switch
+            {
+                "Zai" => d with { ZaiModel = chosen },
+                "OpenAi" => d with { OpenAiModel = chosen },
+                "Anthropic" => d with { AnthropicModel = chosen },
+                "DeepSeek" => d with { DeepSeekModel = chosen },
+                _ => d,
+            };
+            if (!ReferenceEquals(updated, d)) _settings.Update(updated);
+        };
+        return box;
+    }
+
+    private static readonly string[] ZaiModels = ["glm-5.3", "glm-4.6", "glm-4.5-air"];
+    private static readonly string[] OpenAiModels = ["gpt-5.5", "gpt-5.4-mini", "gpt-4o", "gpt-4o-mini"];
+    private static readonly string[] AnthropicModels = ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
+    private static readonly string[] DeepSeekModels = ["deepseek-chat", "deepseek-reasoner"];
+
+    /// <summary>Refills the MODEL dropdown for the current backend and selection.</summary>
+    private void RefreshModelPicker(ComboBox box)
+    {
+        var d = _settings.Data;
+        var (choices, current) = d.Backend switch
+        {
+            "Zai" => (ZaiModels, d.ZaiModel),
+            "OpenAi" => (OpenAiModels, d.OpenAiModel),
+            "Anthropic" => (AnthropicModels, d.AnthropicModel),
+            "DeepSeek" => (DeepSeekModels, d.DeepSeekModel),
+            _ => (Array.Empty<string>(), string.Empty),
+        };
+
+        box.ItemsSource = choices;
+        box.SelectedIndex = Array.IndexOf(choices, current);
+    }
+
+    private void ModelPickerChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox box || box.SelectedItem is not string chosen) return;
+        var d = _settings.Data;
+        var updated = d.Backend switch
+        {
+            "Zai" => d with { ZaiModel = chosen },
+            "OpenAi" => d with { OpenAiModel = chosen },
+            "Anthropic" => d with { AnthropicModel = chosen },
+            "DeepSeek" => d with { DeepSeekModel = chosen },
+            _ => d,
+        };
+        if (!ReferenceEquals(updated, d)) _settings.Update(updated);
+    }
+
     private ComboBox DevicePicker() => new()
     {
         MinWidth = 210,
@@ -398,6 +475,7 @@ internal sealed class MainWindow : Window
             "Zai" => "z.ai",
             "OpenAi" => "OpenAI",
             "Anthropic" => "Claude",
+            "DeepSeek" => "DeepSeek",
             _ => _settings.Data.Backend,
         };
     }

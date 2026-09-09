@@ -11,19 +11,31 @@ namespace WofflePlus;
 /// <param name="Backend">
 /// "Codex" (ChatGPT subscription), "Zai", "OpenAi", or "Anthropic".
 /// </param>
-/// <param name="ZaiApiKey">The z.ai subscription key.</param>
+/// <param name="ZaiApiKeyId">
+/// The z.ai key ID half. z.ai keys are issued as id.secret; when both halves are set the
+/// request authenticates with a signed JWT (their documented high-security flow). Leave
+/// both empty and paste the full combined key into ZaiApiKey to use plain Bearer instead.
+/// </param>
+/// <param name="ZaiApiKeySecret">The z.ai key secret half.</param>
+/// <param name="ZaiApiKey">The z.ai key (combined id.secret, or Bearer-only usage).</param>
 /// <param name="ZaiModel">The GLM model id.</param>
 /// <param name="OpenAiApiKey">An OpenAI platform key (optional alternative).</param>
 /// <param name="OpenAiModel">Its model id.</param>
 /// <param name="AnthropicApiKey">An Anthropic key (optional alternative).</param>
 /// <param name="AnthropicModel">Its model id.</param>
+/// <param name="DeepSeekApiKey">A DeepSeek platform key (optional alternative).</param>
+/// <param name="DeepSeekModel">Its model id.</param>
 /// <param name="KeepTranscript">Whether the session transcript survives app restarts.</param>
 internal sealed record PlusSettings(
     string? MicDeviceId = null,
     string? OutputDeviceId = null,
     string Backend = "Codex",
+    string? ZaiApiKeyId = null,
+    string? ZaiApiKeySecret = null,
     string? ZaiApiKey = null,
     string ZaiModel = PlusCompleterDefaults.ZaiModel,
+    string? DeepSeekApiKey = null,
+    string DeepSeekModel = PlusCompleterDefaults.DeepSeekModel,
     string? OpenAiApiKey = null,
     string OpenAiModel = "gpt-4o-mini",
     string? AnthropicApiKey = null,
@@ -35,6 +47,9 @@ internal static class PlusCompleterDefaults
 {
     /// <summary>z.ai's current flagship GLM model.</summary>
     public const string ZaiModel = "glm-5.3";
+
+    /// <summary>DeepSeek's general-purpose chat model.</summary>
+    public const string DeepSeekModel = "deepseek-chat";
 }
 
 /// <summary>Settings, persisted as JSON.</summary>

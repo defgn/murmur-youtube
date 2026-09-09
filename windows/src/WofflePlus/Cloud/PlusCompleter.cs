@@ -29,6 +29,10 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
     };
     /// <summary>z.ai's OpenAI-compatible endpoint (subscription keys).</summary>
     public const string ZaiBaseUri = "https://api.z.ai/api/paas/v4/";
+
+    /// <summary>DeepSeek's OpenAI-compatible endpoint.</summary>
+    public const string DeepSeekBaseUri = "https://api.deepseek.com/v1/";
+    public const string DeepSeekDefaultModel = "deepseek-chat";
     public const string ZaiDefaultModel = "glm-5.3";
 
     /// <summary>The ChatGPT backend the Codex identity talks to.</summary>
@@ -55,6 +59,21 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         return new PlusCompleter(backend, _ => Task.FromResult<string?>(key), model, baseUri);
     }
 
+    /// <summary>
+    /// Builds the z.ai completer. With both key halves set, requests authenticate with a
+    /// signed JWT (z.ai's documented flow for id.secret keys); otherwise the stored key
+    /// rides in the Bearer header as-is.
+    /// </summary>
+    public static PlusCompleter ForZai(string? keyId, string? keySecret, string? combinedKey, string model)
+    {
+        var bearer = combinedKey ?? string.Empty;
+        return new PlusCompleter(
+            CloudBackend.ZaiKey,
+            ct => Task.FromResult<string?>(ZaiAuth.BuildToken(keyId, keySecret) ?? bearer),
+            model,
+            ZaiBaseUri);
+    }
+
     /// <summary>Builds the ChatGPT-subscription completer (token resolved per call, refreshed silently).</summary>
     public static PlusCompleter ForCodexSubscription(string model = ChatGptDefaultModel) =>
         new(CloudBackend.CodexSubscription,
@@ -79,6 +98,7 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
             CloudBackend.CodexSubscription => ChatGptBaseUri,
             CloudBackend.OpenAiKey => "https://api.openai.com/v1/",
             CloudBackend.AnthropicKey => "https://api.anthropic.com/v1/",
+            CloudBackend.DeepSeekKey => DeepSeekBaseUri,
             _ => baseUri ?? string.Empty,
         };
         if (!string.IsNullOrEmpty(baseUri) && backend == CloudBackend.OpenAiKey) _baseUri = baseUri;
@@ -97,6 +117,7 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
             CloudBackend.CodexSubscription => ChatGptBaseUri,
             CloudBackend.OpenAiKey => "https://api.openai.com/v1/",
             CloudBackend.AnthropicKey => "https://api.anthropic.com/v1/",
+            CloudBackend.DeepSeekKey => DeepSeekBaseUri,
             _ => string.Empty,
         };
         _http = new HttpClient(handler) { Timeout = Timeout };
@@ -115,9 +136,13 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         var credential = await _credential(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(credential))
         {
-            LastError = _backend == CloudBackend.CodexSubscription
-                ? "Not signed in to ChatGPT — Settings → sign in."
-                : "No API key set for this provider — Settings → paste the key.";
+            LastError = _backend switch
+            {
+                CloudBackend.CodexSubscription => "Not signed in to ChatGPT — Settings → sign in.",
+                CloudBackend.ZaiKey => "No z.ai key — Settings → paste your z.ai API key (or fill Key ID + Secret).",
+                CloudBackend.DeepSeekKey => "No DeepSeek key — Settings → paste your DeepSeek API key.",
+                _ => "No API key set for this provider — Settings → paste the key.",
+            };
             return null;
         }
 

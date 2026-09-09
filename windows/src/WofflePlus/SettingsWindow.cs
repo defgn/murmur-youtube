@@ -95,22 +95,26 @@ internal sealed class SettingsWindow : Window
             onSelect: () => _store.Update(_store.Data with { Backend = "Codex" })));
 
         // --- z.ai ---
-        var zaiKey = KeyBox(_store.Data.ZaiApiKey, "Paste your z.ai API key");
+        var zaiKey = KeyBox(_store.Data.ZaiApiKey, "Or paste the full combined key (id.secret)");
         zaiKey.TextChanged += (_, _) => _store.Update(_store.Data with { ZaiApiKey = NullIfEmpty(zaiKey.Text) });
-        var zaiModel = ModelBox(_store.Data.ZaiModel, "glm-5.3");
-        zaiModel.TextChanged += (_, _) => _store.Update(_store.Data with { ZaiModel = ModelOrDefault(zaiModel.Text, "glm-5.3") });
+        var zaiKeyId = KeyBox(_store.Data.ZaiApiKeyId, "Key ID (the part before the dot)");
+        zaiKeyId.TextChanged += (_, _) => _store.Update(_store.Data with { ZaiApiKeyId = NullIfEmpty(zaiKeyId.Text) });
+        var zaiKeySecret = KeyBox(_store.Data.ZaiApiKeySecret, "Key Secret (the part after the dot)");
+        zaiKeySecret.TextChanged += (_, _) => _store.Update(_store.Data with { ZaiApiKeySecret = NullIfEmpty(zaiKeySecret.Text) });
+        var zaiModel = ModelDropDown(_store.Data.ZaiModel, ZaiModels, "glm-5.3",
+            chosen => _store.Update(_store.Data with { ZaiModel = chosen }));
         panel.Children.Add(BackendCard(
             "Z.AI (GLM SUBSCRIPTION)",
-            "Your z.ai API key from https://z.ai — OpenAI-wire compatible, subscription billing.",
-            new Control[] { zaiKey, zaiModel },
+            "z.ai keys are issued as ID.SECRET — fill both halves (signed-JWT auth, their secure flow) or paste the full key below.",
+            new Control[] { zaiKeyId, zaiKeySecret, zaiKey, zaiModel },
             selected: _store.Data.Backend == "Zai",
             onSelect: () => _store.Update(_store.Data with { Backend = "Zai" })));
 
         // --- OpenAI platform key (optional alternative) ---
         var openAiKey = KeyBox(_store.Data.OpenAiApiKey, "sk-… (platform key, billed per token)");
         openAiKey.TextChanged += (_, _) => _store.Update(_store.Data with { OpenAiApiKey = NullIfEmpty(openAiKey.Text) });
-        var openAiModel = ModelBox(_store.Data.OpenAiModel, "gpt-4o-mini");
-        openAiModel.TextChanged += (_, _) => _store.Update(_store.Data with { OpenAiModel = ModelOrDefault(openAiModel.Text, "gpt-4o-mini") });
+        var openAiModel = ModelDropDown(_store.Data.OpenAiModel, OpenAiModels, "gpt-4o-mini",
+            chosen => _store.Update(_store.Data with { OpenAiModel = chosen }));
         panel.Children.Add(BackendCard(
             "OPENAI PLATFORM API",
             "Separate from ChatGPT — pay-per-token billing on platform.openai.com.",
@@ -121,14 +125,26 @@ internal sealed class SettingsWindow : Window
         // --- Anthropic ---
         var anthropicKey = KeyBox(_store.Data.AnthropicApiKey, "sk-ant-…");
         anthropicKey.TextChanged += (_, _) => _store.Update(_store.Data with { AnthropicApiKey = NullIfEmpty(anthropicKey.Text) });
-        var anthropicModel = ModelBox(_store.Data.AnthropicModel, "claude-sonnet-4-5");
-        anthropicModel.TextChanged += (_, _) => _store.Update(_store.Data with { AnthropicModel = ModelOrDefault(anthropicModel.Text, "claude-sonnet-4-5") });
+        var anthropicModel = ModelDropDown(_store.Data.AnthropicModel, AnthropicModels, "claude-sonnet-4-5",
+            chosen => _store.Update(_store.Data with { AnthropicModel = chosen }));
         panel.Children.Add(BackendCard(
             "ANTHROPIC (CLAUDE)",
             "Your Anthropic API key from console.anthropic.com.",
             new Control[] { anthropicKey, anthropicModel },
             selected: _store.Data.Backend == "Anthropic",
             onSelect: () => _store.Update(_store.Data with { Backend = "Anthropic" })));
+
+        // --- DeepSeek ---
+        var deepSeekKey = KeyBox(_store.Data.DeepSeekApiKey, "Paste your DeepSeek API key");
+        deepSeekKey.TextChanged += (_, _) => _store.Update(_store.Data with { DeepSeekApiKey = NullIfEmpty(deepSeekKey.Text) });
+        var deepSeekModel = ModelDropDown(_store.Data.DeepSeekModel, DeepSeekModels, "deepseek-chat",
+            chosen => _store.Update(_store.Data with { DeepSeekModel = chosen }));
+        panel.Children.Add(BackendCard(
+            "DEEPSEEK",
+            "Your DeepSeek API key from platform.deepseek.com — OpenAI-wire compatible.",
+            new Control[] { deepSeekKey, deepSeekModel },
+            selected: _store.Data.Backend == "DeepSeek",
+            onSelect: () => _store.Update(_store.Data with { Backend = "DeepSeek" })));
 
         return panel;
     }
@@ -202,6 +218,30 @@ internal sealed class SettingsWindow : Window
         BorderBrush = Plus.Brush.Border,
         Foreground = Plus.Brush.Ink,
     };
+
+    private static readonly string[] ZaiModels = ["glm-5.3", "glm-4.6", "glm-4.5-air"];
+    private static readonly string[] OpenAiModels = ["gpt-5.5", "gpt-5.4-mini", "gpt-4o", "gpt-4o-mini"];
+    private static readonly string[] AnthropicModels = ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"];
+    private static readonly string[] DeepSeekModels = ["deepseek-chat", "deepseek-reasoner"];
+
+    private ComboBox ModelDropDown(string current, string[] choices, string fallback, Action<string> onPick)
+    {
+        var box = new ComboBox
+        {
+            FontSize = Plus.Font.Small,
+            Background = Plus.Brush.Bg,
+            BorderBrush = Plus.Brush.Border,
+            CornerRadius = new CornerRadius(Plus.Radius.Control),
+            ItemsSource = choices,
+        };
+        var index = Array.IndexOf(choices, current);
+        box.SelectedIndex = index >= 0 ? index : Array.IndexOf(choices, fallback);
+        box.SelectionChanged += (_, _) =>
+        {
+            if (box.SelectedItem is string chosen) onPick(chosen);
+        };
+        return box;
+    }
 
     private static TextBox ModelBox(string value, string watermark) => new()
     {

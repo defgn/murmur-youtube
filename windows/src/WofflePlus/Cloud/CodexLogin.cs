@@ -13,6 +13,7 @@ internal enum CloudBackend
     CodexSubscription,
     AnthropicKey,
     ZaiKey,
+    DeepSeekKey,
 }
 
 /// <summary>A ChatGPT/Codex OAuth identity held in memory.</summary>

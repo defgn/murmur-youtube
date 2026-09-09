@@ -274,9 +274,10 @@ internal sealed class InterviewSession : IDisposable
 
     private IChatCompleter BuildCompleter(PlusSettings data) => data.Backend switch
     {
-        "Zai" => PlusCompleter.ForKey(CloudBackend.ZaiKey, data.ZaiApiKey ?? string.Empty, data.ZaiModel, PlusCompleter.ZaiBaseUri),
+        "Zai" => PlusCompleter.ForZai(data.ZaiApiKeyId, data.ZaiApiKeySecret, data.ZaiApiKey, data.ZaiModel),
         "OpenAi" => PlusCompleter.ForKey(CloudBackend.OpenAiKey, data.OpenAiApiKey ?? string.Empty, data.OpenAiModel),
         "Anthropic" => PlusCompleter.ForKey(CloudBackend.AnthropicKey, data.AnthropicApiKey ?? string.Empty, data.AnthropicModel),
+        "DeepSeek" => PlusCompleter.ForKey(CloudBackend.DeepSeekKey, data.DeepSeekApiKey ?? string.Empty, data.DeepSeekModel, PlusCompleter.DeepSeekBaseUri),
         _ => PlusCompleter.ForCodexSubscription(),
     };
 
