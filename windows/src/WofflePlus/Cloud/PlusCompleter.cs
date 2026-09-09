@@ -37,6 +37,12 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// Why the last CompleteAsync returned null (status code, sign-in state), for the UI.
+    /// Null when the last call succeeded. Deliberately not a log: never contains keys.
+    /// </summary>
+    public string? LastError { get; private set; }
+
     private readonly CloudBackend _backend;
     private readonly Func<CancellationToken, Task<string?>> _credential;
     private readonly string _model;
@@ -105,8 +111,15 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
     public async Task<string?> CompleteAsync(
         string systemPrompt, string userText, CancellationToken cancellationToken)
     {
+        LastError = null;
         var credential = await _credential(cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(credential)) return null;
+        if (string.IsNullOrWhiteSpace(credential))
+        {
+            LastError = _backend == CloudBackend.CodexSubscription
+                ? "Not signed in to ChatGPT — Settings → sign in."
+                : "No API key set for this provider — Settings → paste the key.";
+            return null;
+        }
 
         try
         {
@@ -120,8 +133,19 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
                     credential, systemPrompt, userText, cancellationToken).ConfigureAwait(false),
             };
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
+        catch (HttpRequestException e)
         {
+            LastError = $"Network error reaching the provider: {e.Message}";
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            LastError = "The provider took too long to answer (60s timeout).";
+            return null;
+        }
+        catch (JsonException)
+        {
+            LastError = "The provider returned a response Woffle+ could not read.";
             return null;
         }
     }
@@ -147,7 +171,11 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
 
         using var response = await _http.SendAsync(message, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            LastError = await DescribeAsync(response, ct).ConfigureAwait(false);
+            return null;
+        }
 
         var body = await response.Content
             .ReadFromJsonAsync<OpenAiWire.Response>(JsonOptions, ct)
@@ -175,7 +203,11 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         message.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
 
         using var response = await _http.SendAsync(message, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            LastError = await DescribeAsync(response, ct).ConfigureAwait(false);
+            return null;
+        }
 
         var body = await response.Content
             .ReadFromJsonAsync<AnthropicWire.Response>(JsonOptions, ct)
@@ -209,7 +241,11 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         message.Headers.TryAddWithoutValidation("originator", "codex_cli_rs");
 
         using var response = await _http.SendAsync(message, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            LastError = await DescribeAsync(response, ct).ConfigureAwait(false);
+            return null;
+        }
 
         // The Responses API streams SSE lines; collect the response.output_text.done events.
         var text = new StringBuilder();
@@ -232,7 +268,33 @@ internal sealed class PlusCompleter : IChatCompleter, IDisposable
         }
 
         var answer = text.ToString().Trim();
+        if (string.IsNullOrWhiteSpace(answer)) LastError = "The provider returned an empty response.";
         return string.IsNullOrWhiteSpace(answer) ? null : answer;
+    }
+
+    /// <summary>Reads a friendly one-line reason from a failed response (never the key).</summary>
+    private static async Task<string> DescribeAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var detail = string.Empty;
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var error) &&
+                error.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                error.TryGetProperty("message", out var message))
+            {
+                detail = message.GetString() ?? string.Empty;
+            }
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException or TaskCanceledException)
+        {
+            // Body was not JSON; the status line alone is still useful.
+        }
+
+        return detail.Length == 0
+            ? $"The provider rejected the request (HTTP {(int)response.StatusCode})."
+            : $"The provider rejected the request (HTTP {(int)response.StatusCode}): {detail}";
     }
 
     /// <inheritdoc />

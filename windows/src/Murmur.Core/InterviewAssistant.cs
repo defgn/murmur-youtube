@@ -73,6 +73,10 @@ public sealed class InterviewAssistant : IDisposable
     private int _attempt;
     private string? _currentQuestion;
     private int _regenPending;
+    private readonly Queue<string> _recentContext = new();
+
+    /// <summary>How many recent utterances (both sides) colour the answer's context.</summary>
+    public const int ContextTurns = 6;
 
     /// <summary>Raised when a new interviewer question is detected.</summary>
     public event EventHandler<InterviewTurn>? QuestionDetected;
@@ -101,6 +105,9 @@ public sealed class InterviewAssistant : IDisposable
     /// </summary>
     public void Observe(InterviewTurn turn)
     {
+        _recentContext.Enqueue((turn.Speaker == Speaker.Interviewer ? "Interviewer: " : "Me: ") + turn.Text);
+        while (_recentContext.Count > ContextTurns) _recentContext.Dequeue();
+
         if (turn.Speaker != Speaker.Interviewer || !turn.IsQuestion) return;
 
         _currentQuestion = turn.Text;
@@ -142,6 +149,7 @@ public sealed class InterviewAssistant : IDisposable
     {
         _currentQuestion = null;
         _attempt = 0;
+        _recentContext.Clear();
         State = InterviewState.Listening;
     }
 
@@ -166,8 +174,8 @@ public sealed class InterviewAssistant : IDisposable
                 if (answer is null)
                 {
                     State = InterviewState.Answered;
-                    DraftFailed?.Invoke(this,
-                        "Could not draft an answer — check the AI backend in Settings → AI.");
+                    DraftFailed?.Invoke(this, "Answer failed: "
+                        + (_completer.LastError ?? "check the AI backend in Settings."));
                     return;
                 }
 
@@ -221,13 +229,20 @@ public sealed class InterviewAssistant : IDisposable
         "(\"In my last role…\") over textbook definitions. Keep the full answer under 250 " +
         "words — about 90 seconds spoken. Never mention being an AI or this coaching.";
 
-    /// <summary>The per-question user message.</summary>
-    private static string BuildUserPrompt(string question, bool shortForm) =>
-        shortForm
-            ? "Question asked: \"" + question + "\"\n\nGive ONLY the short version: 3-4 " +
-              "talking-point bullets, each one line, that the candidate can glance at and " +
-              "speak from. ~30 seconds spoken. No introduction, no closing."
-            : "Question asked: \"" + question + "\"\n\nGive the full spoken answer now.";
+    /// <summary>The per-question user message, with the recent conversation for context.</summary>
+    private string BuildUserPrompt(string question, bool shortForm)
+    {
+        var context = _recentContext.Count == 0
+            ? string.Empty
+            : "Recent conversation:\n" + string.Join("\n", _recentContext) + "\n\n";
+        return context
+            + "Question just asked: \"" + question + "\"\n\n"
+            + (shortForm
+                ? "Give ONLY the short version: 3-4 talking-point bullets, each one line, " +
+                  "that the candidate can glance at and speak from. ~30 seconds spoken. " +
+                  "No introduction, no closing."
+                : "Give the full spoken answer now.");
+    }
 
     /// <inheritdoc />
     public void Dispose() => _draftGate.Dispose();

@@ -307,11 +307,14 @@ internal sealed class InterviewSession : IDisposable
 /// <summary>Resolves the speech model folder for the conversation feeds.</summary>
 internal sealed class ParakeetTranscriberLocate
 {
-    /// <summary>Finds the installed model directory, preferring compact.</summary>
+    /// <summary>
+    /// Finds the installed model directory, preferring the accurate 0.6B TDT model for
+    /// transcription quality; the compact CTC 110M is the fallback (roughly 2 GB vs 450 MB,
+    /// but noticeably better on accents and call audio).
+    /// </summary>
     public ITranscriber? Resolve()
     {
-        var dir = Murmur.Speech.ParakeetTranscriber.Locate(Murmur.Speech.ParakeetTranscriber.CompactFolder)
-                  ?? Murmur.Speech.ParakeetTranscriber.Locate(Murmur.Speech.ParakeetTranscriber.AccurateFolder);
+        var dir = Murmur.Speech.ParakeetTranscriber.Locate();
         return dir is null ? null : new Murmur.Speech.ParakeetTranscriber(dir);
     }
 }

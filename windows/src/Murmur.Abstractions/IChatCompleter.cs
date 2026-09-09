@@ -24,4 +24,10 @@ public interface IChatCompleter : IDisposable
     /// </summary>
     Task<string?> CompleteAsync(
         string systemPrompt, string userText, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Why the most recent CompleteAsync returned null, in user-readable words, or null
+    /// when it succeeded. Implementations must never include credentials here.
+    /// </summary>
+    string? LastError => null;
 }

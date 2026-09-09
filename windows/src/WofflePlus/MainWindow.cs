@@ -116,6 +116,9 @@ internal sealed class MainWindow : Window
             Children = { _fullTab, _shortTab },
         });
 
+        // DETECTED QUESTION is pinned at the top of the answer column: the question first,
+        // the answer beneath it, exactly as read order demands. The answer card scrolls;
+        // the question never scrolls away.
         var questionCard = Card(new StackPanel
         {
             Spacing = Plus.Space.Snug,
@@ -123,13 +126,25 @@ internal sealed class MainWindow : Window
         });
         questionCard.BorderThickness = new Thickness(0, 0, 0, Plus.Line.Accent);
         questionCard.BorderBrush = Plus.Brush.Orange;
+        var pinnedQuestion = new Border
+        {
+            Background = Plus.Brush.Bg,
+            Padding = new Thickness(Plus.Space.Roomy, Plus.Space.Base, Plus.Space.Roomy, 0),
+            Child = questionCard,
+        };
 
         _statusLine = Text(Plus.Font.Label, Plus.Brush.InkSecondary, FontWeight.Normal);
         _statusLine.IsVisible = false;
 
+        // DockPanel docking order: header → tab strip → pinned question, then the answer
+        // scroll (added last) fills the rest. Question first, answer beneath it.
         var answerColumn = new DockPanel();
         answerColumn.Children.Add(PaneHeader("AI ANSWER", Dock.Top));
-        answerColumn.Children.Add(PaneHeaderStrip(tabBar));
+        var tabBarStrip = PaneHeaderStrip(tabBar);
+        DockPanel.SetDock(tabBarStrip, Dock.Top);
+        answerColumn.Children.Add(tabBarStrip);
+        DockPanel.SetDock(pinnedQuestion, Dock.Top);
+        answerColumn.Children.Add(pinnedQuestion);
         var answerScroll = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -137,8 +152,8 @@ internal sealed class MainWindow : Window
             Content = new StackPanel
             {
                 Spacing = Plus.Space.Base,
-                Margin = new Thickness(Plus.Space.Roomy, 0, Plus.Space.Roomy, Plus.Space.Base),
-                Children = { questionCard, _fullCard, _shortCard, _statusLine },
+                Margin = new Thickness(Plus.Space.Roomy, Plus.Space.Base, Plus.Space.Roomy, Plus.Space.Base),
+                Children = { _fullCard, _shortCard, _statusLine },
             },
         };
         answerColumn.Children.Add(answerScroll);
