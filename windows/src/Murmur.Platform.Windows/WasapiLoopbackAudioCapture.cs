@@ -32,7 +32,8 @@ public sealed class WasapiLoopbackAudioCapture : IAudioCapture
     private Channel<float[]>? _channel;
     private BufferedWaveProvider? _rawSink;
     private WdlResamplingSampleProvider? _pipeline;
-    private float[] _pullBuffer = [];
+    private System.Threading.Timer? _pump;
+    private int _draining;
 
     /// <summary>Captures from a specific render endpoint, or the default when null.</summary>
     public WasapiLoopbackAudioCapture(string? deviceId = null) => DeviceId = deviceId;
@@ -96,6 +97,51 @@ public sealed class WasapiLoopbackAudioCapture : IAudioCapture
         _capture = capture;
         capture.StartRecording();
         IsCapturing = true;
+        StartPump();
+    }
+
+    /// <summary>
+    /// Loopback callbacks stop during silence, but the utterance segmenter needs silence
+    /// chunks to close utterances and the resampler holds a tail of samples it only
+    /// releases when pulled. A 20 ms drain keeps the feed flowing mic-style: real audio
+    /// when playing, clean digital silence when not.
+    /// </summary>
+    private void StartPump()
+    {
+        _pump = new System.Threading.Timer(
+            _ => Drain(),
+            null,
+            dueTime: 20,
+            period: 20);
+    }
+
+    private void Drain()
+    {
+        // One drain at a time; the timer can fire re-entrantly on thread-pool threads.
+        if (Interlocked.Exchange(ref _draining, 1) == 1) return;
+        try
+        {
+            if (_pipeline is null || _channel is null) return;
+
+            // 20 ms at 16 kHz mono; pull as much as the converter has ready.
+            var buffer = new float[AudioChunk.SampleRate / 50];
+            var total = 0;
+            while (total < buffer.Length)
+            {
+                var read = _pipeline.Read(buffer, total, buffer.Length - total);
+                if (read == 0) break;
+                total += read;
+            }
+            if (total == 0) return;
+
+            var owned = new float[total];
+            Array.Copy(buffer, owned, total);
+            _channel.Writer.TryWrite(owned);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _draining, 0);
+        }
     }
 
     private void BuildConverter(WaveFormat source)
@@ -117,7 +163,6 @@ public sealed class WasapiLoopbackAudioCapture : IAudioCapture
         }
 
         _pipeline = new WdlResamplingSampleProvider(provider, AudioChunk.SampleRate);
-        _pullBuffer = new float[AudioChunk.SampleRate / 10];
     }
 
     /// <summary>
@@ -129,28 +174,6 @@ public sealed class WasapiLoopbackAudioCapture : IAudioCapture
         if (e.BytesRecorded == 0) return;
 
         _rawSink!.AddSamples(e.Buffer, 0, e.BytesRecorded);   // AddSamples copies internally
-
-        while (true)
-        {
-            var read = _pipeline!.Read(_pullBuffer, 0, _pullBuffer.Length);
-            if (read == 0) return;
-
-            var owned = new float[read];
-            if (Gain != 1f)
-            {
-                for (var i = 0; i < read; i++)
-                {
-                    var scaled = _pullBuffer[i] * Gain;
-                    owned[i] = scaled > 1f ? 1f : scaled < -1f ? -1f : scaled;
-                }
-            }
-            else
-            {
-                Array.Copy(_pullBuffer, owned, read);
-            }
-
-            _channel?.Writer.TryWrite(owned);
-        }
     }
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
@@ -165,6 +188,9 @@ public sealed class WasapiLoopbackAudioCapture : IAudioCapture
     private void StopCapture()
     {
         if (_capture is null) return;
+
+        _pump?.Dispose();
+        _pump = null;
 
         _capture.DataAvailable -= OnDataAvailable;
         _capture.RecordingStopped -= OnRecordingStopped;

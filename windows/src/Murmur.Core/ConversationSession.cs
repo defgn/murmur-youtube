@@ -55,6 +55,9 @@ public sealed class ConversationSession : IConversationSession
     public event EventHandler<string>? Utterance;
 
     /// <inheritdoc />
+    public event EventHandler<float>? FeedLevel;
+
+    /// <inheritdoc />
     public event EventHandler<string>? Fault;
 
     /// <summary>Swaps the feed's device live; takes effect from the next (re)start.</summary>
@@ -133,6 +136,7 @@ public sealed class ConversationSession : IConversationSession
     private async Task ProcessChunkAsync(AudioChunk chunk, CancellationToken token)
     {
         var rms = chunk.Rms();
+        FeedLevel?.Invoke(this, rms);
         if (rms >= UtteranceSegmenter.SpeechRmsThreshold)
         {
             _trailingSilence = 0;

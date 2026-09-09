@@ -25,6 +25,9 @@ public interface IConversationSession : IAsyncDisposable
     /// <summary>Raised with each finished utterance (deterministically cleaned text).</summary>
     event EventHandler<string>? Utterance;
 
+    /// <summary>Raised per chunk with feed loudness, 0…1 RMS. Drives level meters.</summary>
+    event EventHandler<float>? FeedLevel;
+
     /// <summary>Raised with user-readable faults (device lost, model load failure).</summary>
     event EventHandler<string>? Fault;
 }

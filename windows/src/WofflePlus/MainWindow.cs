@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using System.Diagnostics;
 using WofflePlus.Cloud;
 using WofflePlus.Design;
 
@@ -40,6 +41,10 @@ internal sealed class MainWindow : Window
     private Border? _listenDot;
     private TextBlock? _listenLabel;
     private bool _listening = true;
+
+    // Live level meters (MIC / SPEAKER), one thin bar each under the device pickers.
+    private Border? _micMeterFill;
+    private Border? _speakerMeterFill;
 
     public MainWindow(PlusSettingsStore settings)
     {
@@ -223,10 +228,11 @@ internal sealed class MainWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = Plus.Space.Base,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, Plus.Space.Tight, 0, 0),
             Children =
             {
-                PickerLabel("MIC", _micPicker),
-                PickerLabel("SPEAKER", _outputPicker),
+                PickerWithMeter("MIC", _micPicker, isMic: true),
+                PickerWithMeter("SPEAKER", _outputPicker, isMic: false),
             },
         };
 
@@ -252,7 +258,7 @@ internal sealed class MainWindow : Window
         {
             Background = Plus.Brush.Header,
             Margin = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(Plus.Space.Wide, Plus.Space.Base),
+            Padding = new Thickness(Plus.Space.Wide, Plus.Space.Base + 2, Plus.Space.Wide, Plus.Space.Base),
             Child = header,
         };
     }
@@ -296,6 +302,13 @@ internal sealed class MainWindow : Window
         return _listenButton;
     }
 
+    private void PaintMeters(float mic, float speaker)
+    {
+        const double maxWidth = 210;
+        if (_micMeterFill is { } m) m.Width = Math.Clamp(mic * 3.2, 0, 1) * maxWidth;
+        if (_speakerMeterFill is { } s) s.Width = Math.Clamp(speaker * 3.2, 0, 1) * maxWidth;
+    }
+
     private void UpdateListeningUi()
     {
         if (_listenButton is null || _listenDot is null || _listenLabel is null) return;
@@ -317,6 +330,38 @@ internal sealed class MainWindow : Window
             picker,
         },
     };
+
+    private Control PickerWithMeter(string label, Control picker, bool isMic)
+    {
+        var fill = new Border
+        {
+            Background = Plus.Brush.Green,
+            CornerRadius = new CornerRadius(1),
+            Height = 3,
+            Width = 0,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        var track = new Border
+        {
+            Background = Plus.Brush.Card,
+            BorderBrush = Plus.Brush.Border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            Height = 5,
+            Child = fill,
+        };
+        if (isMic) _micMeterFill = fill; else _speakerMeterFill = fill;
+        return new StackPanel
+        {
+            Spacing = Plus.Space.Hair,
+            Children =
+            {
+                SmallCaps(label, Plus.Brush.InkSecondary),
+                picker,
+                track,
+            },
+        };
+    }
 
     private ComboBox DevicePicker() => new()
     {
@@ -535,6 +580,24 @@ internal sealed class MainWindow : Window
             _statusLine.Text = message;
             _statusLine.IsVisible = true;
         });
+
+        // Level meters: repaint at most every 100 ms; decays toward zero when quiet.
+        var meterClock = Stopwatch.StartNew();
+        var lastMic = 0f;
+        var lastSpeaker = 0f;
+        _session.FeedLevel += (_, level) =>
+        {
+            if (level.IsMic) lastMic = Math.Max(lastMic * 0.82f, level.Level);
+            else lastSpeaker = Math.Max(lastSpeaker * 0.82f, level.Level);
+
+            if (meterClock.ElapsedMilliseconds < 100) return;
+            meterClock.Restart();
+            var mic = lastMic;
+            var speaker = lastSpeaker;
+            lastMic = 0;
+            lastSpeaker = 0;
+            Dispatcher.UIThread.Post(() => PaintMeters(mic, speaker));
+        };
 
         _session.Start();
     }

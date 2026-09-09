@@ -43,6 +43,9 @@ internal sealed class InterviewSession : IDisposable
     /// <summary>Raised when the ChatGPT (Codex) sign-in state changes.</summary>
     public event EventHandler? CodexAuthChanged;
 
+    /// <summary>(isMic, level 0…1) roughly 50×/second. Drives the header level meters.</summary>
+    public event EventHandler<(bool IsMic, float Level)>? FeedLevel;
+
     /// <summary>Raised when the listening toggle changes state.</summary>
     public event EventHandler<bool>? ListeningChanged;
 
@@ -111,6 +114,9 @@ internal sealed class InterviewSession : IDisposable
 
         micSession.Fault += (_, m) => Notice?.Invoke(this, m);
         loopbackSession.Fault += (_, m) => Notice?.Invoke(this, m);
+
+        micSession.FeedLevel += (_, level) => FeedLevel?.Invoke(this, (true, level));
+        loopbackSession.FeedLevel += (_, level) => FeedLevel?.Invoke(this, (false, level));
 
         _sessions[true] = micSession;
         _sessions[false] = loopbackSession;
