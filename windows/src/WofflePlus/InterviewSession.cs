@@ -204,6 +204,28 @@ internal sealed class InterviewSession : IDisposable
     /// <summary>"Try another angle".</summary>
     public void Regenerate() => _assistant.Regenerate();
 
+    /// <summary>
+    /// Applies a user edit to the current question (typo fix) and re-answers with the
+    /// corrected text. Empty edits are ignored so clearing the box mid-typing doesn't
+    /// fire a broken draft.
+    /// </summary>
+    public void UpdateQuestion(string edited)
+    {
+        if (string.IsNullOrWhiteSpace(edited)) return;
+        _assistant.ReplaceQuestion(edited.Trim());
+    }
+
+    /// <summary>
+    /// Answers an arbitrary question — typed by hand into the question box, or forced
+    /// after an edit — regardless of what the detector heard.
+    /// </summary>
+    public void AskQuestion(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return;
+        QuestionDetected?.Invoke(this, question.Trim());
+        _assistant.AskDirect(question.Trim());
+    }
+
     /// <summary>Runs the ChatGPT subscription sign-in; returns tokens on success.</summary>
     public async Task<CodexTokens?> SignInCodexAsync(Action<string> openBrowser)
     {

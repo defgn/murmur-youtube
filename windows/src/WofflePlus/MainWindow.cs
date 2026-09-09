@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using System.Diagnostics;
 using WofflePlus.Cloud;
@@ -25,7 +26,19 @@ internal sealed class MainWindow : Window
     private readonly TextBlock _backendChip;
     private readonly StackPanel _transcriptList;
     private readonly ScrollViewer _transcriptScroll;
-    private readonly TextBlock _questionText;
+    private readonly TextBox _questionBox = new()
+    {
+        FontSize = 18,
+        FontWeight = FontWeight.SemiBold,
+        Foreground = Plus.Brush.Ink,
+        Background = Plus.Brush.Header,
+        BorderBrush = Plus.Brush.Border,
+        BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(Plus.Radius.Control),
+        Padding = new Thickness(Plus.Space.Snug, Plus.Space.Tight),
+        Watermark = "Type a question and press Ask…",
+        AcceptsReturn = false,
+    };
     private readonly TextBlock _answerMeta;
     private readonly SelectableTextBlock _fullAnswer;
     private readonly SelectableTextBlock _shortAnswer;
@@ -55,6 +68,15 @@ internal sealed class MainWindow : Window
         _session = new InterviewSession(settings);
 
         Title = "Woffle+";
+        try
+        {
+            var stream = AssetLoader.Open(new Uri("avares://woffle_plus/Assets/woffle-plus.ico"));
+            Icon = new WindowIcon(stream);
+        }
+        catch (Exception)
+        {
+            // Missing icon must never block startup.
+        }
         Width = 1180;
         Height = 760;
         MinWidth = 980;
@@ -81,7 +103,6 @@ internal sealed class MainWindow : Window
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
 
-        _questionText = Text(Plus.Font.BodyLarge, Plus.Brush.Ink, FontWeight.SemiBold);
         _answerMeta = Text(Plus.Font.Small, Plus.Brush.InkSecondary, FontWeight.Normal);
         _fullAnswer = AnswerBlock();
         _shortAnswer = AnswerBlock();
@@ -120,12 +141,45 @@ internal sealed class MainWindow : Window
         });
 
         // DETECTED QUESTION is pinned at the top of the answer column: the question first,
-        // the answer beneath it, exactly as read order demands. The answer card scrolls;
-        // the question never scrolls away.
+        // the answer beneath it, exactly as read order demands. The text is editable — fix a
+        // mis-heard word, or type a question yourself — and the edited text is what the AI
+        // answers (redrafted on focus loss); the Ask button forces a redraft on demand.
+        var askButton = new Button
+        {
+            Content = "Ask",
+            FontSize = Plus.Font.Small,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Plus.Brush.Orange,
+            Background = Plus.Brush.Header,
+            BorderBrush = Plus.Brush.Orange,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(Plus.Radius.Control),
+            Padding = new Thickness(Plus.Space.Base, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = new Cursor(StandardCursorType.Hand),
+        };
+        askButton.Click += (_, _) => _session.AskQuestion(_questionBox.Text ?? string.Empty);
+        _questionBox.LostFocus += (_, _) => _session.UpdateQuestion(_questionBox.Text ?? string.Empty);
+        _questionBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { _session.AskQuestion(_questionBox.Text ?? string.Empty); e.Handled = true; }
+        };
+
         var questionCard = Card(new StackPanel
         {
             Spacing = Plus.Space.Snug,
-            Children = { SmallCaps("DETECTED QUESTION", Plus.Brush.Orange), _questionText },
+            Children =
+            {
+                SmallCaps("DETECTED QUESTION · EDITABLE", Plus.Brush.Orange),
+                new DockPanel
+                {
+                    Children =
+                    {
+                        askButton,
+                        _questionBox,
+                    },
+                },
+            },
         });
         questionCard.BorderThickness = new Thickness(0, 0, 0, Plus.Line.Accent);
         questionCard.BorderBrush = Plus.Brush.Orange;
@@ -139,15 +193,15 @@ internal sealed class MainWindow : Window
         _statusLine = Text(Plus.Font.Label, Plus.Brush.InkSecondary, FontWeight.Normal);
         _statusLine.IsVisible = false;
 
-        // DockPanel docking order: header → tab strip → pinned question, then the answer
-        // scroll (added last) fills the rest. Question first, answer beneath it.
+        // DockPanel docking order: header → pinned question → tab strip (below the
+        // question), then the answer scroll fills the rest.
         var answerColumn = new DockPanel();
         answerColumn.Children.Add(PaneHeader("AI ANSWER", Dock.Top));
+        DockPanel.SetDock(pinnedQuestion, Dock.Top);
+        answerColumn.Children.Add(pinnedQuestion);
         var tabBarStrip = PaneHeaderStrip(tabBar);
         DockPanel.SetDock(tabBarStrip, Dock.Top);
         answerColumn.Children.Add(tabBarStrip);
-        DockPanel.SetDock(pinnedQuestion, Dock.Top);
-        answerColumn.Children.Add(pinnedQuestion);
         var answerScroll = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -171,11 +225,50 @@ internal sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(10, GridUnitType.Star)));
         transcriptColumn.SetValue(Grid.ColumnProperty, 0);
         grid.Children.Add(transcriptColumn);
-        var seam = new Border { Width = 1, Background = Plus.Brush.Border };
-        seam.SetValue(Grid.ColumnProperty, 1);
-        grid.Children.Add(seam);
         answerColumn.SetValue(Grid.ColumnProperty, 2);
         grid.Children.Add(answerColumn);
+
+        // Draggable splitter: a wide invisible grab strip over a 1px visible seam. The
+        // user drags to rebalance transcript vs answer width; bounds keep both columns
+        // usable (never narrower than ~180px).
+        var seam = new Border
+        {
+            Width = 9,
+            Background = Brushes.Transparent,
+            Child = new Border { Width = 1, Background = Plus.Brush.Border, HorizontalAlignment = HorizontalAlignment.Center },
+            Cursor = new Cursor(StandardCursorType.SizeWestEast),
+        };
+        Grid.SetColumn(seam, 1);
+        grid.Children.Add(seam);
+        double _splitRatio = 11.0 / 21.0;
+        double ratioAtDragStart = _splitRatio;
+        Point _dragOrigin = default;
+        seam.PointerPressed += (_, e) =>
+        {
+            ratioAtDragStart = grid.ColumnDefinitions[0].Width.Value /
+                (grid.ColumnDefinitions[0].Width.Value + grid.ColumnDefinitions[2].Width.Value);
+            _dragOrigin = e.GetPosition(grid);
+            e.Pointer.Capture(seam);
+            e.Handled = true;
+        };
+        seam.PointerMoved += (_, e) =>
+        {
+            if (!Equals(e.Pointer.Captured, seam)) return;
+            var total = grid.Bounds.Width;
+            if (total < 100) return;
+            var minPx = 180.0;
+            var lo = minPx / total;
+            var hi = 1 - minPx / total;
+            var delta = e.GetPosition(grid).X - _dragOrigin.X;
+            var ratio = Math.Clamp(ratioAtDragStart + delta / total, lo, hi);
+            grid.ColumnDefinitions[0].Width = new GridLength(ratio, GridUnitType.Star);
+            grid.ColumnDefinitions[2].Width = new GridLength(1 - ratio, GridUnitType.Star);
+        };
+        seam.PointerReleased += (_, e) =>
+        {
+            if (Equals(e.Pointer.Captured, seam)) e.Pointer.Capture(null);
+            e.Handled = true;
+        };
 
         var root = new DockPanel { Background = Plus.Brush.Bg };
         var header = Header();
@@ -652,7 +745,7 @@ internal sealed class MainWindow : Window
 
         _session.QuestionDetected += (_, question) => Dispatcher.UIThread.Post(() =>
         {
-            _questionText.Text = question;
+            _questionBox.Text = question;
             _answerMeta.Text = "drafting…";
             _fullAnswer.Text = string.Empty;
             _shortAnswer.Text = string.Empty;

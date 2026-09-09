@@ -128,6 +128,31 @@ public sealed class InterviewAssistant : IDisposable
         _ = DraftAsync(_currentQuestion, freshAngle: true);
     }
 
+    /// <summary>
+    /// Replaces the current question's text (the user fixed a typo in the box) and
+    /// re-answers with the corrected wording.
+    /// </summary>
+    public void ReplaceQuestion(string edited)
+    {
+        if (string.IsNullOrWhiteSpace(edited)) return;
+        _currentQuestion = edited.Trim();
+        _attempt = 1;
+        _ = DraftAsync(_currentQuestion, freshAngle: false);
+    }
+
+    /// <summary>
+    /// Answers a question directly — typed by the user, not heard by the detector —
+    /// bypassing the interviewer-only gate.
+    /// </summary>
+    public void AskDirect(string question)
+    {
+        if (string.IsNullOrWhiteSpace(question)) return;
+        _currentQuestion = question.Trim();
+        _attempt = 1;
+        State = InterviewState.Drafting;
+        _ = DraftAsync(_currentQuestion, freshAngle: false);
+    }
+
     /// <summary>Swaps the model backend live (Settings → AI changed).</summary>
     public void ConfigureCompleter(IChatCompleter completer)
     {
