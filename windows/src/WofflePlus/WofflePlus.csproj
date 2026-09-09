@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>woffle_plus</AssemblyName>
+    <RootNamespace>WofflePlus</RootNamespace>
+    <BundledNativeLibs>true</BundledNativeLibs>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsNotAsErrors>NU5104</WarningsNotAsErrors>
+    <NoWarn>$(NoWarn);CS1591;CA1001;CA1707;CA1822;CA1859</NoWarn>
+    <!-- Self-contained single directory; the platform layer ships beside the exe. -->
+    <SelfContained>false</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Avalonia.Diagnostics" Condition="'$(Configuration)' == 'Debug'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Murmur.Abstractions\Murmur.Abstractions.csproj" />
+    <ProjectReference Include="..\Murmur.Core\Murmur.Core.csproj" />
+    <ProjectReference Include="..\Murmur.Dictionary\Murmur.Dictionary.csproj" />
+    <ProjectReference Include="..\Murmur.Speech\Murmur.Speech.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
+    <ProjectReference Include="..\Murmur.Platform.Windows\Murmur.Platform.Windows.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      UndefineProperties="TargetFramework"
+                      Private="false" />
+  </ItemGroup>
+
+  <Target Name="PublishWindowsPlatformLayer"
+          BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
+    <MSBuild Projects="..\Murmur.Platform.Windows\Murmur.Platform.Windows.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="RuntimeIdentifier" />
+    <ItemGroup>
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
+      <_PlatformPublish Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+      <ResolvedFileToPublish Include="@(_PlatformPublish)">
+        <RelativePath>%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyWindowsPlatformLayer"
+          AfterTargets="Build"
+          Condition="'$([System.OperatingSystem]::IsWindows())' == 'true' Or '$(ForceWindowsPlatformLayer)' == 'true'">
+    <ItemGroup>
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\Murmur.Platform.Windows.dll" />
+      <PlatformLayer Include="..\Murmur.Platform.Windows\bin\$(Configuration)\net10.0-windows\NAudio*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PlatformLayer)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
+  </Target>
+
+</Project>
