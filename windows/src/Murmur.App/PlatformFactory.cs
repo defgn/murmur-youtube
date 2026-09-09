@@ -135,6 +135,41 @@ internal static class PlatformFactory
     public static ISelectionReader? CreateSelectionReader() =>
         Create<ISelectionReader>("ClipboardSelectionReader", []);
 
+    /// <summary>
+    /// Creates the loopback capture for the interviewer feed, or null off Windows.
+    /// </summary>
+    public static IAudioCapture? CreateLoopbackCapture(string? deviceId) =>
+        Create<IAudioCapture>("WasapiLoopbackAudioCapture", [deviceId]);
+
+    /// <summary>
+    /// Lists render (output) devices for the interviewer feed's picker, or an empty list
+    /// when the platform layer is absent.
+    /// </summary>
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026:RequiresUnreferencedCode",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2075:DynamicallyAccessedMembers",
+        Justification = "Murmur.Platform.Windows is published whole and never trimmed.")]
+    public static IReadOnlyList<AudioDeviceInfo> ListRenderDevices()
+    {
+        var assembly = Load();
+        var type = assembly?.GetType($"{Namespace}.WasapiDevices");
+        var method = type?.GetMethod("ListRenderDevices", Type.EmptyTypes);
+        if (method is null) return [];
+
+        try
+        {
+            return method.Invoke(null, null) as IReadOnlyList<AudioDeviceInfo> ?? [];
+        }
+        catch (Exception e) when (e is TargetInvocationException or MemberAccessException)
+        {
+            return [];
+        }
+    }
+
     [UnconditionalSuppressMessage(
         "Trimming",
         "IL2026:RequiresUnreferencedCode",

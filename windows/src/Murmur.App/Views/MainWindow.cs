@@ -37,7 +37,9 @@ public sealed class MainWindow : Window
     private readonly TextBlock _subLine;
     private readonly Border _transcriptionsTab;
     private readonly Border _dictionaryTab;
+    private readonly Border _assistantTab;
     private readonly ContentControl _sectionHost;
+    private InterviewView? _assistantView;
     private readonly DispatcherTimer _waveTimer;
     private readonly DispatcherTimer _noticeTimer;
 
@@ -106,8 +108,10 @@ public sealed class MainWindow : Window
 
         _transcriptionsTab = BuildTab("Transcriptions", engaged: true);
         _dictionaryTab = BuildTab("Dictionary", engaged: false);
+        _assistantTab = BuildTab("Woffle+", engaged: false);
         _transcriptionsTab.PointerPressed += (_, _) => ShowSection(transcriptions: true);
         _dictionaryTab.PointerPressed += (_, _) => ShowSection(transcriptions: false);
+        _assistantTab.PointerPressed += (_, _) => ShowAssistant();
 
         _sectionHost = new ContentControl();
 
@@ -140,6 +144,9 @@ public sealed class MainWindow : Window
 
         Content = BuildLayout();
         ShowSection(transcriptions: true);
+
+        // Woffle+ hotkeys, alive whenever the window is focused.
+        KeyDown += OnWindowKeyDown;
 
         if (_composition?.Engine is not null)
         {
@@ -468,7 +475,7 @@ public sealed class MainWindow : Window
         Orientation = Orientation.Horizontal,
         Spacing = Tokens.Space.Wide + Tokens.Space.Snug,
         Margin = new Thickness(Tokens.Space.Roomy, 0, Tokens.Space.Roomy, Tokens.Space.Base),
-        Children = { _transcriptionsTab, _dictionaryTab },
+        Children = { _transcriptionsTab, _dictionaryTab, _assistantTab },
     };
 
     /// <summary>
@@ -539,6 +546,28 @@ public sealed class MainWindow : Window
             _dictionaryView ??= new DictionaryView(_composition.Dictionary);
             _sectionHost.Content = _dictionaryView;
         }
+    }
+
+    /// <summary>Shows the Woffle+ interview panel and disengages the other tabs.</summary>
+    private void ShowAssistant()
+    {
+        SetTabEngaged(_transcriptionsTab, false);
+        SetTabEngaged(_dictionaryTab, false);
+        SetTabEngaged(_assistantTab, true);
+
+        if (_composition is null)
+        {
+            _sectionHost.Content = Panels.EmptyState(
+                "Woffle+ needs the platform layer",
+                "The interview assistant runs on Windows with real audio devices.");
+            return;
+        }
+
+        _assistantView ??= new InterviewView(_composition);
+        _sectionHost.Content = _assistantView;
+
+        // Both feeds start with the engine; starting again is a no-op.
+        _composition.Assistant?.Start();
     }
 
     private static void SetTabEngaged(Border tab, bool engaged)
@@ -694,6 +723,22 @@ public sealed class MainWindow : Window
     {
         if (_composition is null) return;
         _ = new SettingsWindow(_composition).ShowDialog(this);
+    }
+
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyModifiers is not (KeyModifiers.Control | KeyModifiers.Shift)) return;
+
+        if (e.Key == Key.A)
+        {
+            _composition?.Assistant?.Regenerate();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.C && _assistantView is not null && this is TopLevel)
+        {
+            _ = _assistantView.CopyAnswerAsync(this);
+            e.Handled = true;
+        }
     }
 
     /// <summary>Pulls state from the engine onto the panel.</summary>

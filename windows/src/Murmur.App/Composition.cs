@@ -29,6 +29,7 @@ public sealed class Composition : IAsyncDisposable
         TranscriptStore transcripts,
         DictationEngine? engine,
         CommandModeCoordinator? commandMode,
+        InterviewCoordinator? assistant,
         bool platformAvailable)
     {
         Settings = settings;
@@ -36,6 +37,7 @@ public sealed class Composition : IAsyncDisposable
         Transcripts = transcripts;
         Engine = engine;
         CommandMode = commandMode;
+        Assistant = assistant;
         IsPlatformAvailable = platformAvailable;
     }
 
@@ -53,6 +55,11 @@ public sealed class Composition : IAsyncDisposable
 
     /// <summary>Command Mode, or null when no platform layer is available.</summary>
     public CommandModeCoordinator? CommandMode { get; }
+
+    /// <summary>
+    /// The interview assistant (Woffle+), or null when no platform layer is available.
+    /// </summary>
+    public InterviewCoordinator? Assistant { get; }
 
     /// <summary>Whether real audio and hotkey support were found.</summary>
     public bool IsPlatformAvailable { get; }
@@ -99,6 +106,7 @@ public sealed class Composition : IAsyncDisposable
 
         DictationEngine? engine = null;
         CommandModeCoordinator? commandMode = null;
+        InterviewCoordinator? assistant = null;
         var available = capture is not null && hotkey is not null && injector is not null;
 
         if (available)
@@ -165,9 +173,13 @@ public sealed class Composition : IAsyncDisposable
                     Corrections = result.Corrections.Count > 0 ? result.Corrections : null,
                 });
             };
+
+            // Woffle+: the two-feed interview assistant. Built whenever the platform layer
+            // exists; the on/off switch lives in settings and applies live.
+            assistant = InterviewCoordinator.Create(settings, dictionary, transcriber, engine);
         }
 
-        return new Composition(settings, dictionary, transcripts, engine, commandMode, available);
+        return new Composition(settings, dictionary, transcripts, engine, commandMode, assistant, available);
     }
 
     /// <summary>

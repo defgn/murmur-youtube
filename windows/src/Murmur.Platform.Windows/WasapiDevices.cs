@@ -63,6 +63,51 @@ public static class WasapiDevices
     }
 
     /// <summary>
+    /// Lists active render (output) endpoints for the interviewer feed's loopback picker.
+    /// </summary>
+    /// <remarks>
+    /// The interviewer's voice reaches the PC through whatever output the user is listening
+    /// on; loopback-capturing that endpoint captures the other side of the call. The system
+    /// default render device sorts first.
+    /// </remarks>
+    public static IReadOnlyList<AudioDeviceInfo> ListRenderDevices()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        var defaultId = DefaultRenderId(enumerator);
+
+        var endpoints = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        try
+        {
+            return endpoints
+                .Select(d => new AudioDeviceInfo(
+                    d.ID,
+                    FriendlyName(d),
+                    string.Equals(d.ID, defaultId, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(d => d.IsDefault)
+                .ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+        finally
+        {
+            foreach (var endpoint in endpoints) endpoint.Dispose();
+        }
+    }
+
+    /// <summary>The id of the OS default render endpoint, or null.</summary>
+    private static string? DefaultRenderId(MMDeviceEnumerator enumerator)
+    {
+        try
+        {
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
+            return device.ID;
+        }
+        catch (Exception e) when (e is COMException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// A readable name. <c>FriendlyName</c> is usually enough; for Bluetooth and USB devices
     /// it can be a bare interface string, and the endpoint's own <c>PropertyStore</c> name
     /// is the better label.

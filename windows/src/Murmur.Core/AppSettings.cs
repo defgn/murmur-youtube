@@ -46,6 +46,32 @@ namespace Murmur.Core;
 /// <param name="UnloadWhenIdle">
 /// Whether to unload the speech model after a period of no dictation.
 /// </param>
+/// <param name="AssistantEnabled">
+/// Whether the interview assistant runs at all (Woffle+ mode). Off, the app is plain
+/// Woffle dictation.
+/// </param>
+/// <param name="LoopbackDeviceId">
+/// The WASAPI render endpoint captured in loopback for the interviewer feed, or null for
+/// the system default render device.
+/// </param>
+/// <param name="AnswerBackend">
+/// Which model answers interview questions: "Bundled" (the shipped GGUF, offline),
+/// "Ollama" (a local model on this PC), or "Cloud" (see <see cref="CloudProviderName"/>).
+/// </param>
+/// <param name="CloudProviderName">
+/// When <see cref="AnswerBackend"/> is "Cloud": "OpenAi", "Anthropic", or
+/// "OpenAiCompatible" (Azure OpenAI, Groq, OpenRouter…).
+/// </param>
+/// <param name="CloudApiKey">
+/// The cloud API key. Stored only in this settings file on the user's PC, sent only in the
+/// request headers of answer calls — never logged, never transcribed.
+/// </param>
+/// <param name="CloudModel">
+/// The model id for cloud backends, e.g. "gpt-4o-mini" or "claude-sonnet-4-5".
+/// </param>
+/// <param name="CloudBaseUri">
+/// The endpoint root for "OpenAiCompatible" (Azure OpenAI, Groq, OpenRouter…).
+/// </param>
 /// <remarks>
 /// <para>
 /// A positional record on purpose: System.Text.Json binds missing JSON fields to
@@ -69,7 +95,14 @@ public sealed record SettingsData(
     bool KeepHistory = true,
     int CommandKey = 0xA1,
     bool? CloseToTray = null,
-    bool UnloadWhenIdle = true);
+    bool UnloadWhenIdle = true,
+    bool AssistantEnabled = true,
+    string? LoopbackDeviceId = null,
+    string AnswerBackend = "Cloud",
+    string CloudProviderName = "OpenAi",
+    string? CloudApiKey = null,
+    string CloudModel = "gpt-4o-mini",
+    string? CloudBaseUri = null);
 
 /// <summary>Settings, persisted as JSON.</summary>
 public sealed class AppSettings

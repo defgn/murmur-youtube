@@ -196,6 +196,8 @@ public sealed class SettingsWindow : Window
                 },
             }),
 
+            Section("Woffle+ interview assistant", BuildAssistantSection()),
+
             Section("Model", BuildModelSection()),
         },
     };
@@ -311,6 +313,251 @@ public sealed class SettingsWindow : Window
 
         _micStatus.Text = $"Using {deviceName}.";
         _composition.ConfigureInput(deviceId, _settings.Data.InputGain);
+    }
+
+    // ---- Woffle+ interview assistant ----
+
+    /// <summary>The Woffle+ section: on/off, the interviewer feed's output device, and the answer model.</summary>
+    private StackPanel BuildAssistantSection()
+    {
+        var on = _settings.Data.AssistantEnabled;
+
+        _assistantOn = Selectable("On", on);
+        _assistantOff = Selectable("Off", !on);
+        _assistantOn.Click += (_, _) => SelectAssistantEnabled(true);
+        _assistantOff.Click += (_, _) => SelectAssistantEnabled(false);
+
+        var enableRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children = { _assistantOn, _assistantOff },
+        };
+
+        _outputRow = new StackPanel { Spacing = Tokens.Space.Tight };
+        _outputStatus = new TextBlock
+        {
+            FontFamily = Tokens.Fonts.Grotesque,
+            FontSize = Tokens.Fonts.Label,
+            Foreground = new SolidColorBrush(Tokens.Colors.InkSecondary),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        RefreshOutputDevices();
+
+        _assistantConfig = new StackPanel
+        {
+            Spacing = Tokens.Space.Base,
+            Children =
+            {
+                Panels.Caption("ON"),
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = Tokens.Space.Snug,
+                    Children = { _assistantOn, _assistantOff },
+                },
+                Panels.Caption("INTERVIEWER AUDIO (OUTPUT DEVICE)"),
+                _outputRow,
+                _outputStatus,
+                Note("The interviewer's voice reaches this PC through your speakers or "
+                   + "headset. Woffle+ listens to that output, so pick the device you "
+                   + "actually hear them on. Applies live."),
+                Panels.Caption("ANSWER MODEL"),
+                BuildAnswerBackend(),
+                Note("Cloud models give the best answers and need an API key from the "
+                   + "provider's website. The key stays on this PC and is sent only to the "
+                   + "provider you chose. The bundled model works offline with no key."),
+            },
+            IsVisible = on,
+        };
+
+        return new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children = { enableRow, _assistantConfig },
+        };
+    }
+
+    /// <summary>Lists render endpoints for the interviewer feed.</summary>
+    private void RefreshOutputDevices()
+    {
+        _outputRow.Children.Clear();
+
+        var devices = PlatformFactory.ListRenderDevices();
+        if (devices.Count == 0)
+        {
+            _outputStatus.Text = "No output devices found — plug in or enable an audio output.";
+            return;
+        }
+
+        var selected = _settings.Data.LoopbackDeviceId;
+        _outputStatus.Text = selected is null
+            ? "Using the Windows default output. Pick one below to choose explicitly."
+            : "Using your selected output.";
+
+        foreach (var device in devices)
+        {
+            var isChosen = string.Equals(device.Id, selected, StringComparison.OrdinalIgnoreCase);
+            var label = device.IsDefault && selected is null
+                ? $"{device.Name}  (default)"
+                : device.Name;
+
+            var button = Selectable(label, isChosen);
+            var capturedId = device.Id;
+            var capturedName = device.Name;
+            button.Click += (_, _) => SelectOutputDevice(capturedId, capturedName);
+            _outputRow.Children.Add(button);
+        }
+    }
+
+    private void SelectOutputDevice(string deviceId, string deviceName)
+    {
+        foreach (var child in _outputRow.Children)
+        {
+            if (child is SelectablePill pill) SetSelectable(pill, false);
+        }
+
+        foreach (var child in _outputRow.Children)
+        {
+            if (child is SelectablePill pill
+                && pill.Child is TextBlock label
+                && label.Text?.StartsWith(deviceName, StringComparison.Ordinal) == true)
+            {
+                SetSelectable(pill, true);
+                break;
+            }
+        }
+
+        _outputStatus.Text = $"Using {deviceName}.";
+        Save(_settings.Data with { LoopbackDeviceId = deviceId });
+        _composition.Assistant?.ConfigureDevices(_settings.Data.InputDeviceId, deviceId);
+    }
+
+    private void SelectAssistantEnabled(bool enabled)
+    {
+        SetSelectable(_assistantOn, enabled);
+        SetSelectable(_assistantOff, !enabled);
+        _assistantConfig.IsVisible = enabled;
+        Save(_settings.Data with { AssistantEnabled = enabled });
+    }
+
+    /// <summary>The answer model choice: Cloud (OpenAI/Anthropic/compatible), Bundled, or Ollama.</summary>
+    private StackPanel BuildAnswerBackend()
+    {
+        var backend = _settings.Data.AnswerBackend;
+        var isCloud = string.Equals(backend, "Cloud", StringComparison.OrdinalIgnoreCase);
+        var isOllama = string.Equals(backend, "Ollama", StringComparison.OrdinalIgnoreCase);
+
+        _cloudBackendButton = Selectable("Cloud (ChatGPT, Claude…)", isCloud);
+        _bundledAnswerButton = Selectable("Bundled model", !isCloud && !isOllama);
+        _ollamaAnswerButton = Selectable("Ollama", isOllama);
+        _cloudBackendButton.Click += (_, _) => SelectAnswerBackend("Cloud");
+        _bundledAnswerButton.Click += (_, _) => SelectAnswerBackend("Bundled");
+        _ollamaAnswerButton.Click += (_, _) => SelectAnswerBackend("Ollama");
+
+        var backendRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children = { _cloudBackendButton, _bundledAnswerButton, _ollamaAnswerButton },
+        };
+
+        // Cloud provider pills.
+        var provider = _settings.Data.CloudProviderName;
+        var isOpenAi = provider is "OpenAi" or null;
+        var isAnthropic = provider == "Anthropic";
+        var isCompatible = provider == "OpenAiCompatible";
+
+        _openAiButton = Selectable("OpenAI (ChatGPT)", isOpenAi);
+        _anthropicButton = Selectable("Anthropic (Claude)", isAnthropic);
+        _compatibleButton = Selectable("Other (Azure, Groq…)", isCompatible);
+        _openAiButton.Click += (_, _) => SelectCloudProvider("OpenAi");
+        _anthropicButton.Click += (_, _) => SelectCloudProvider("Anthropic");
+        _compatibleButton.Click += (_, _) => SelectCloudProvider("OpenAiCompatible");
+
+        var providerRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Tokens.Space.Snug,
+            Children = { _openAiButton, _anthropicButton, _compatibleButton },
+        };
+
+        _apiKeyBox = new TextBox
+        {
+            Text = _settings.Data.CloudApiKey ?? string.Empty,
+            Watermark = "Paste your API key",
+            FontFamily = Tokens.Fonts.Mono,
+            FontSize = Tokens.Fonts.Label,
+            PasswordChar = '•',
+        };
+        _apiKeyBox.TextChanged += (_, _) => Save(_settings.Data with { CloudApiKey = _apiKeyBox.Text });
+
+        _cloudModelBox = new TextBox
+        {
+            Text = _settings.Data.CloudModel,
+            Watermark = "Model id, e.g. gpt-4o-mini or claude-sonnet-4-5",
+            FontFamily = Tokens.Fonts.Mono,
+            FontSize = Tokens.Fonts.Label,
+        };
+        _cloudModelBox.TextChanged += (_, _) => Save(_settings.Data with
+        {
+            CloudModel = string.IsNullOrWhiteSpace(_cloudModelBox.Text) ? "gpt-4o-mini" : _cloudModelBox.Text,
+        });
+
+        _baseUriBox = new TextBox
+        {
+            Text = _settings.Data.CloudBaseUri ?? string.Empty,
+            Watermark = "https://your-endpoint.example.com/v1/ (leave blank for the provider default)",
+            FontFamily = Tokens.Fonts.Mono,
+            FontSize = Tokens.Fonts.Label,
+            IsVisible = isCompatible,
+        };
+        _baseUriBox.TextChanged += (_, _) => Save(_settings.Data with
+        {
+            CloudBaseUri = string.IsNullOrWhiteSpace(_baseUriBox.Text) ? null : _baseUriBox.Text,
+        });
+
+        _cloudPanel = new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children =
+            {
+                Panels.Caption("PROVIDER"),
+                providerRow,
+                Panels.Caption("API KEY"),
+                _apiKeyBox,
+                Panels.Caption("MODEL"),
+                _cloudModelBox,
+                _baseUriBox,
+            },
+            IsVisible = isCloud,
+        };
+
+        return new StackPanel
+        {
+            Spacing = Tokens.Space.Snug,
+            Children = { backendRow, _cloudPanel },
+        };
+    }
+
+    private void SelectAnswerBackend(string backend)
+    {
+        var isCloud = backend == "Cloud";
+        var isOllama = backend == "Ollama";
+        SetSelectable(_cloudBackendButton, isCloud);
+        SetSelectable(_bundledAnswerButton, !isCloud && !isOllama);
+        SetSelectable(_ollamaAnswerButton, isOllama);
+        _cloudPanel.IsVisible = isCloud;
+        Save(_settings.Data with { AnswerBackend = backend });
+    }
+
+    private void SelectCloudProvider(string provider)
+    {
+        SetSelectable(_openAiButton, provider == "OpenAi");
+        SetSelectable(_anthropicButton, provider == "Anthropic");
+        SetSelectable(_compatibleButton, provider == "OpenAiCompatible");
+        _baseUriBox.IsVisible = provider == "OpenAiCompatible";
+        Save(_settings.Data with { CloudProviderName = provider });
     }
 
     private StackPanel BuildModelSection()
@@ -574,6 +821,21 @@ public sealed class SettingsWindow : Window
     private TextBox _ollamaModelBox = null!;
     private TextBlock _smartNote = null!;
     private StackPanel _smartCleanSection = null!;
+    private StackPanel _outputRow = null!;
+    private TextBlock _outputStatus = null!;
+    private SelectablePill _assistantOn = null!;
+    private SelectablePill _assistantOff = null!;
+    private StackPanel _assistantConfig = null!;
+    private SelectablePill _cloudBackendButton = null!;
+    private SelectablePill _bundledAnswerButton = null!;
+    private SelectablePill _ollamaAnswerButton = null!;
+    private SelectablePill _openAiButton = null!;
+    private SelectablePill _anthropicButton = null!;
+    private SelectablePill _compatibleButton = null!;
+    private StackPanel _cloudPanel = null!;
+    private TextBox _apiKeyBox = null!;
+    private TextBox _cloudModelBox = null!;
+    private TextBox _baseUriBox = null!;
     private SelectablePill _compactModelButton = null!;
     private SelectablePill _accurateModelButton = null!;
     private TextBlock _speechModelNote = null!;
