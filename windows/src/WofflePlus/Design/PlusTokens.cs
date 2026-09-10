@@ -33,6 +33,7 @@ internal static class Plus
         public static Avalonia.Media.Color OrangeDim => From(0x2A1F14);
         public static Avalonia.Media.Color Hover => From(0x1C2129);
         public static Avalonia.Media.Color Keycap => From(0x21262D);
+        public static Avalonia.Media.Color Muted => From(0x6E7681);
 
         private static Avalonia.Media.Color From(uint rgb) => Avalonia.Media.Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
     }
@@ -56,6 +57,7 @@ internal static class Plus
         public static readonly IBrush OrangeDim = Frozen(Swatch.OrangeDim);
         public static readonly IBrush Hover = Frozen(Swatch.Hover);
         public static readonly IBrush Keycap = Frozen(Swatch.Keycap);
+        public static readonly IBrush Muted = Frozen(Swatch.Muted);
 
         public static IBrush WithAlpha(Avalonia.Media.Color c, byte a) => new SolidColorBrush(c, a);
         public static IBrush Transparent => Brushes.Transparent;
@@ -72,6 +74,10 @@ internal static class Plus
         public const double Base = 12;
         public const double Roomy = 16;
         public const double Wide = 24;
+        /// <summary>Gap between the question label and the prompt bar.</summary>
+        public const double BarGap = 6;
+        /// <summary>Horizontal padding of the tab strip.</summary>
+        public const double StripPad = 14;
     }
 
     /// <summary>Type scale.</summary>
@@ -79,12 +85,18 @@ internal static class Plus
     {
         public const double Label = 12.5;
         public const double Small = 12;
+        /// <summary>Pane-header tail text and other micro copy.</summary>
+        public const double Micro = 11;
+        /// <summary>Small-caps labels above controls.</summary>
+        public const double Caption = 11.5;
         public const double Body = 15;
         public const double BodyLarge = 16;
         public const double Title = 19;
 
         public static FontFamily Family { get; } = FontFamily.Parse("Segoe UI, Inter, Helvetica Neue, Arial");
         public static FontFamily Mono { get; } = FontFamily.Parse("Consolas, Cascadia Mono, Menlo, monospace");
+        /// <summary>Letter spacing for small-caps labels.</summary>
+        public const double Tracking = 1.1;
     }
 
     /// <summary>Corner radii.</summary>
@@ -93,6 +105,21 @@ internal static class Plus
         public const double Control = 6;
         public const double Card = 10;
         public const double Pill = 20;
+        /// <summary>Fully round pill (prompt bar, Ask button).</summary>
+        public const double Full = 999;
+    }
+
+    /// <summary>Pane header bar geometry (px).</summary>
+    public static class Pane
+    {
+        /// <summary>Header bar height.</summary>
+        public const double Height = 38;
+        /// <summary>Header bar horizontal padding.</summary>
+        public const double HPadding = 14;
+        /// <summary>Header bar vertical padding.</summary>
+        public const double VPadding = 9;
+        /// <summary>Status dot diameter.</summary>
+        public const double Dot = 7;
     }
 
     /// <summary>Line weights.</summary>

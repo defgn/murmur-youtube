@@ -7,7 +7,6 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using System.Diagnostics;
-using WofflePlus.Cloud;
 using WofflePlus.Design;
 
 namespace WofflePlus;
@@ -23,21 +22,24 @@ internal sealed class MainWindow : Window
 
     private readonly ComboBox _micPicker;
     private readonly ComboBox _outputPicker;
-    private readonly TextBlock _backendChip;
+    private readonly Stopwatch _sessionClock = Stopwatch.StartNew();
+    private readonly DispatcherTimer _clockTick = new() { Interval = TimeSpan.FromSeconds(1) };
+    private TextBlock? _timerLabel;
     private readonly StackPanel _transcriptList;
     private readonly ScrollViewer _transcriptScroll;
     private readonly TextBox _questionBox = new()
     {
-        FontSize = 18,
-        FontWeight = FontWeight.SemiBold,
+        FontSize = Plus.Font.Body,
+        FontWeight = FontWeight.Normal,
         Foreground = Plus.Brush.Ink,
-        Background = Plus.Brush.Header,
-        BorderBrush = Plus.Brush.Border,
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(Plus.Radius.Control),
-        Padding = new Thickness(Plus.Space.Snug, Plus.Space.Tight),
+        Background = Plus.Brush.Transparent,
+        BorderThickness = new Thickness(0),
+        Padding = new Thickness(0),
         Watermark = "Type a question and press Ask…",
         AcceptsReturn = false,
+        VerticalAlignment = VerticalAlignment.Center,
+        VerticalContentAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
     };
     private readonly TextBlock _answerMeta;
     private readonly SelectableTextBlock _fullAnswer;
@@ -86,14 +88,6 @@ internal sealed class MainWindow : Window
 
         _micPicker = DevicePicker();
         _outputPicker = DevicePicker();
-        _backendChip = new TextBlock
-        {
-            FontSize = Plus.Font.Small,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Plus.Brush.Green,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        RefreshBackendChip();
 
         _transcriptList = new StackPanel();
         _transcriptScroll = new ScrollViewer
@@ -144,50 +138,75 @@ internal sealed class MainWindow : Window
         // the answer beneath it, exactly as read order demands. The text is editable — fix a
         // mis-heard word, or type a question yourself — and the edited text is what the AI
         // answers (redrafted on focus loss); the Ask button forces a redraft on demand.
+        // Variant B prompt bar: one pill container, pencil glyph, borderless box, the Ask
+        // button nested inside on the right.
         var askButton = new Button
         {
-            Content = "Ask",
+            Content = "Ask →",
             FontSize = Plus.Font.Small,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Plus.Brush.Orange,
-            Background = Plus.Brush.Header,
-            BorderBrush = Plus.Brush.Orange,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(Plus.Radius.Control),
-            Padding = new Thickness(Plus.Space.Base, 2),
+            FontWeight = FontWeight.Bold,
+            Foreground = Plus.Brush.Bg,
+            Background = Plus.Brush.Orange,
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(Plus.Radius.Full),
+            Padding = new Thickness(22, 8),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = new Cursor(StandardCursorType.Hand),
         };
         askButton.Click += (_, _) => _session.AskQuestion(_questionBox.Text ?? string.Empty);
-        _questionBox.LostFocus += (_, _) => _session.UpdateQuestion(_questionBox.Text ?? string.Empty);
         _questionBox.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter) { _session.AskQuestion(_questionBox.Text ?? string.Empty); e.Handled = true; }
         };
 
-        var questionCard = Card(new StackPanel
+        var promptBar = new Border
         {
-            Spacing = Plus.Space.Snug,
-            Children =
-            {
-                SmallCaps("DETECTED QUESTION · EDITABLE", Plus.Brush.Orange),
-                new DockPanel
-                {
-                    Children =
-                    {
-                        askButton,
-                        _questionBox,
-                    },
-                },
-            },
+            Background = Plus.Brush.Bg,
+            BorderBrush = Plus.Brush.Border,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(Plus.Radius.Full),
+            Padding = new Thickness(Plus.Space.StripPad, Plus.Space.BarGap, Plus.Space.BarGap, Plus.Space.BarGap),
+        };
+        var promptRow = new DockPanel();
+        DockPanel.SetDock(askButton, Dock.Right);
+        promptRow.Children.Add(askButton);
+        promptRow.Children.Add(new TextBlock
+        {
+            Text = "✎",
+            FontSize = Plus.Font.Body,
+            Foreground = Plus.Brush.InkSecondary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, Plus.Space.Snug, 0),
         });
-        questionCard.BorderThickness = new Thickness(0, 0, 0, Plus.Line.Accent);
-        questionCard.BorderBrush = Plus.Brush.Orange;
+        promptRow.Children.Add(_questionBox);
+        promptBar.Child = promptRow;
+        _questionBox.GotFocus += (_, _) => promptBar.BorderBrush = Plus.Brush.Orange;
+        _questionBox.LostFocus += (_, _) =>
+        {
+            promptBar.BorderBrush = Plus.Brush.Border;
+            _session.UpdateQuestion(_questionBox.Text ?? string.Empty);
+        };
+
         var pinnedQuestion = new Border
         {
             Background = Plus.Brush.Bg,
             Padding = new Thickness(Plus.Space.Roomy, Plus.Space.Base, Plus.Space.Roomy, 0),
-            Child = questionCard,
+            Child = new StackPanel
+            {
+                Spacing = Plus.Space.BarGap,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "DETECTED QUESTION",
+                        FontSize = Plus.Font.Caption,
+                        FontWeight = FontWeight.Bold,
+                        Foreground = Plus.Brush.InkSecondary,
+                        LetterSpacing = Plus.Font.Tracking,
+                    },
+                    promptBar,
+                },
+            },
         };
 
         _statusLine = Text(Plus.Font.Label, Plus.Brush.InkSecondary, FontWeight.Normal);
@@ -196,7 +215,7 @@ internal sealed class MainWindow : Window
         // DockPanel docking order: header → pinned question → tab strip (below the
         // question), then the answer scroll fills the rest.
         var answerColumn = new DockPanel();
-        answerColumn.Children.Add(PaneHeader("AI ANSWER", Dock.Top));
+        answerColumn.Children.Add(PaneHeader("AI ANSWER", Plus.Brush.Blue, tailTimer: false, Dock.Top));
         DockPanel.SetDock(pinnedQuestion, Dock.Top);
         answerColumn.Children.Add(pinnedQuestion);
         var tabBarStrip = PaneHeaderStrip(tabBar);
@@ -216,7 +235,7 @@ internal sealed class MainWindow : Window
         answerColumn.Children.Add(answerScroll);
 
         var transcriptColumn = new DockPanel();
-        transcriptColumn.Children.Add(PaneHeader("LIVE TRANSCRIPT", Dock.Top));
+        transcriptColumn.Children.Add(PaneHeader("LIVE TRANSCRIPT", Plus.Brush.Green, tailTimer: true, Dock.Top));
         transcriptColumn.Children.Add(_transcriptScroll);
 
         var grid = new Grid();
@@ -303,18 +322,28 @@ internal sealed class MainWindow : Window
             UpdateListeningUi();
         });
 
-        // Sign-in/out and backend changes in Settings repaint the chip + refill the model picker.
+        // Backend changes in Settings refill the model picker. Sign-in stays inside the
+        // Settings window — the header carries no backend chip.
         _settings.Changed += (_, _) => Dispatcher.UIThread.Post(() =>
         {
-            RefreshBackendChip();
             RefreshModelPicker(_modelPicker);
         });
-        _session.CodexAuthChanged += (_, _) => Dispatcher.UIThread.Post(RefreshBackendChip);
 
-        Closed += (_, _) => _session.Dispose();
+        _clockTick.Tick += (_, _) =>
+        {
+            if (_timerLabel is not null)
+                _timerLabel.Text = _sessionClock.Elapsed.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
+        };
+        _clockTick.Start();
+
+        Closed += (_, _) =>
+        {
+            _clockTick.Stop();
+            _session.Dispose();
+        };
     }
 
-    // ---- header: brand, listening chip, device pickers, backend ----
+    // ---- header: brand, listening toggle, device pickers ----
 
     private Control Header()
     {
@@ -361,7 +390,7 @@ internal sealed class MainWindow : Window
             Orientation = Orientation.Horizontal,
             Spacing = Plus.Space.Base,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { pickers, _backendChip, settings },
+            Children = { pickers, settings },
         };
 
         var header = new DockPanel
@@ -559,30 +588,72 @@ internal sealed class MainWindow : Window
         VerticalContentAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>Repaints the backend chip from the current settings + sign-in state.</summary>
-    private void RefreshBackendChip()
-    {
-        _backendChip.Text = _settings.Data.Backend switch
-        {
-            "Codex" => CodexLogin.IsSignedIn ? "ChatGPT ✓" : "ChatGPT — sign in",
-            "Zai" => "z.ai",
-            "OpenAi" => "OpenAI",
-            "Anthropic" => "Claude",
-            "DeepSeek" => "DeepSeek",
-            _ => _settings.Data.Backend,
-        };
-    }
-
     // ---- transcript / answer panes ----
 
-    private static Control PaneHeader(string label, Dock dock)
+    private Control PaneHeader(string label, IBrush dot, bool tailTimer, Dock dock)
     {
+        var dotBlock = new Border
+        {
+            Width = Plus.Pane.Dot,
+            Height = Plus.Pane.Dot,
+            CornerRadius = new CornerRadius(Plus.Pane.Dot / 2),
+            Background = dot,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var left = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = Plus.Space.Snug,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children =
+            {
+                dotBlock,
+                new TextBlock
+                {
+                    Text = label,
+                    FontSize = Plus.Font.Small,
+                    FontWeight = FontWeight.Bold,
+                    Foreground = Plus.Brush.InkSecondary,
+                    LetterSpacing = Plus.Font.Tracking,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            },
+        };
+        TextBlock tail;
+        if (tailTimer)
+        {
+            _timerLabel = tail = new TextBlock
+            {
+                Text = _sessionClock.Elapsed.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture),
+                FontSize = Plus.Font.Micro,
+                Foreground = Plus.Brush.Muted,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+        }
+        else
+        {
+            tail = new TextBlock
+            {
+                Text = "grounded in transcript",
+                FontSize = Plus.Font.Micro,
+                Foreground = Plus.Brush.Muted,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+        }
+        var inner = new DockPanel();
+        DockPanel.SetDock(left, Dock.Left);
+        DockPanel.SetDock(tail, Dock.Right);
+        // DockPanel.Children order matters: docked children first, then the filler last.
+        inner.Children.Add(tail);
+        inner.Children.Add(left);
         var border = new Border
         {
             Background = Plus.Brush.Header,
             BorderBrush = Plus.Brush.Border,
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Child = SmallCaps(label, Plus.Brush.InkSecondary),
+            Height = Plus.Pane.Height,
+            Padding = new Thickness(Plus.Pane.HPadding, Plus.Pane.VPadding),
+            Child = inner,
         };
         DockPanel.SetDock(border, dock);
         return border;
@@ -591,7 +662,7 @@ internal sealed class MainWindow : Window
     private static Control PaneHeaderStrip(Control strip) => new Border
     {
         Background = Plus.Brush.Bg,
-        Padding = new Thickness(Plus.Space.Roomy, Plus.Space.Snug, Plus.Space.Roomy, 0),
+        Padding = new Thickness(Plus.Space.StripPad, Plus.Space.Snug, Plus.Space.StripPad, 0),
         Child = strip,
     };
 
@@ -601,6 +672,7 @@ internal sealed class MainWindow : Window
         FontSize = Plus.Font.Small,
         FontWeight = FontWeight.SemiBold,
         Foreground = colour,
+        LetterSpacing = Plus.Font.Tracking,
     };
 
     private static TextBlock Text(double size, IBrush colour, FontWeight weight) => new()
