@@ -957,9 +957,17 @@ internal sealed class MainWindow : Window
         _micPicker.ItemsSource = micNames;
         _outputPicker.ItemsSource = renderNames;
         RefreshPickersSelection();
+        RefreshPickerTooltips();
 
         _micPicker.SelectionChanged += MicChanged;
         _outputPicker.SelectionChanged += OutputChanged;
+    }
+
+    /// <summary>Shows the full device name on hover when the picker truncates it.</summary>
+    private void RefreshPickerTooltips()
+    {
+        ToolTip.SetTip(_micPicker, _micPicker.SelectedItem?.ToString());
+        ToolTip.SetTip(_outputPicker, _outputPicker.SelectedItem?.ToString());
     }
 
     private void RefreshPickersSelection()
@@ -972,9 +980,17 @@ internal sealed class MainWindow : Window
         _outputPicker.SelectionChanged += OutputChanged;
     }
 
-    private void MicChanged(object? sender, SelectionChangedEventArgs e) => ApplyDevice(mic: true);
+    private void MicChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshPickerTooltips();
+        ApplyDevice(mic: true);
+    }
 
-    private void OutputChanged(object? sender, SelectionChangedEventArgs e) => ApplyDevice(mic: false);
+    private void OutputChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RefreshPickerTooltips();
+        ApplyDevice(mic: false);
+    }
 
     private static int PickIndex(List<string?> ids, string? current)
     {
@@ -1071,7 +1087,7 @@ internal sealed class MainWindow : Window
         CornerRadius = new CornerRadius(7),
         FontSize = 14,
         Padding = new Thickness(10, 7, 10, 7),
-        MaxWidth = 270,
+        MaxWidth = 340,
         MinWidth = 180,
     };
 
