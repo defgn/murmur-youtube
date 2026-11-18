@@ -8,9 +8,12 @@
       "src\\Murmur.Dictionary\\Murmur.Dictionary.csproj",
       "src\\Murmur.Speech\\Murmur.Speech.csproj",
       "src\\Murmur.Testing\\Murmur.Testing.csproj",
+      "src\\MeetingTranscriber.Core\\MeetingTranscriber.Core.csproj",
+      "src\\MeetingTranscriber\\MeetingTranscriber.csproj",
       "tests\\Murmur.App.Tests\\Murmur.App.Tests.csproj",
       "tests\\Murmur.Core.Tests\\Murmur.Core.Tests.csproj",
-      "tests\\Murmur.Dictionary.Tests\\Murmur.Dictionary.Tests.csproj"
+      "tests\\Murmur.Dictionary.Tests\\Murmur.Dictionary.Tests.csproj",
+      "tests\\MeetingTranscriber.Tests\\MeetingTranscriber.Tests.csproj"
     ]
   }
 }

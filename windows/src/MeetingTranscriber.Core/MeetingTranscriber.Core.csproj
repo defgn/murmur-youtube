@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Platform-NEUTRAL. CA1416 makes any Windows-only API call here a build error,
+         which keeps detection, windowing and orchestration testable from any OS. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MeetingTranscriber.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Murmur.Abstractions\Murmur.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
