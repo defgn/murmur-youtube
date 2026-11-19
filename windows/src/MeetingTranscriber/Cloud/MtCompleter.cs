@@ -37,7 +37,7 @@ internal sealed class MtCompleter : IChatCompleter, IDisposable
 
     /// <summary>The ChatGPT backend the Codex identity talks to.</summary>
     public const string ChatGptBaseUri = "https://chatgpt.com/backend-api/";
-    public const string ChatGptDefaultModel = "gpt-5.5";
+    public const string ChatGptDefaultModel = "gpt-6.1-sol";
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
