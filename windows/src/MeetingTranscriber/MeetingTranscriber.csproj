@@ -28,6 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="MeetingTranscriber.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\MeetingTranscriber.Core\MeetingTranscriber.Core.csproj" />
     <ProjectReference Include="..\Murmur.Abstractions\Murmur.Abstractions.csproj" />
     <ProjectReference Include="..\Murmur.Core\Murmur.Core.csproj" />

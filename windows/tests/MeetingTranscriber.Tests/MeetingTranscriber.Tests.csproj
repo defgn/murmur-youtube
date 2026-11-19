@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MeetingTranscriber.Core\MeetingTranscriber.Core.csproj" />
+    <ProjectReference Include="..\..\src\MeetingTranscriber\MeetingTranscriber.csproj" />
     <ProjectReference Include="..\..\src\Murmur.Testing\Murmur.Testing.csproj" />
   </ItemGroup>
 </Project>

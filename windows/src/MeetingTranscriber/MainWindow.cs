@@ -258,7 +258,7 @@ internal sealed class MainWindow : Window
         recRow.Children.Add(_recLabel);
         recPill.Child = recRow;
         var meetingName = NewText(13, Secondary, FontWeight.Normal);
-        meetingName.Text = "Fabric migration standup";
+        meetingName.Text = $"Meeting {DateTime.Now:HH:mm}";
         meetingName.VerticalAlignment = VerticalAlignment.Center;
         titleRow.Children.Add(appName);
         titleRow.Children.Add(recPill);

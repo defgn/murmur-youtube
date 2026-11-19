@@ -252,7 +252,7 @@ internal sealed class MtCompleter : IChatCompleter, IDisposable
         var request = new CodexWire.Request(
             Model: _model,
             Instructions: systemPrompt,
-            Input: [new CodexWire.InputItem(new CodexWire.InputText(userText))],
+            Input: [new CodexWire.InputItem("message", "user", [new CodexWire.InputText("input_text", userText)])],
             Store: false,
             Stream: true);
 
@@ -388,9 +388,13 @@ internal static class CodexWire
         [property: JsonPropertyName("store")] bool Store,
         [property: JsonPropertyName("stream")] bool Stream);
 
-    public sealed record InputItem(InputText Text);
+    public sealed record InputItem(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("role")] string Role,
+        [property: JsonPropertyName("content")] InputText[] Content);
 
     public sealed record InputText(
+        [property: JsonPropertyName("type")] string Type,
         [property: JsonPropertyName("text")] string Text);
 
     public sealed record StreamEvent(
